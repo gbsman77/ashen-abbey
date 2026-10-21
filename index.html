@@ -1,0 +1,296 @@
+<title>잿빛 수도원</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&family=Nanum+Gothic+Coding:wght@400;700&family=Nanum+Myeongjo:wght@700;800&display=swap">
+<style>
+/* 레이아웃: 왼쪽은 던전 창(와이어프레임) + 사건 창, 오른쪽은 지도·상태·소지품. 폰에서는 세로로 쌓고 조작 패드를 아래에.
+   한 가지 화면 톤(옛 모니터의 어둠)으로 고정한 단일 테마. */
+:root {
+  --void: #07080d;      /* 던전의 어둠, 캔버스 바탕 */
+  --panel: #0e1018;     /* 패널 바탕 */
+  --stone: #2a2c38;     /* 미니맵 벽, 테두리 */
+  --ash: #6e6c78;       /* 보조 글자, 희미한 선 */
+  --bone: #e6e0cc;      /* 와이어프레임 선, 본문 */
+  --torch: #e9a23b;     /* 문, 강조, 플레이어 */
+  --blood: #d8564a;     /* 경고, 위험 */
+  --moss: #8fbf7a;      /* 획득 */
+  --f-display: 'Nanum Myeongjo', 'Batang', serif;
+  --f-body: 'Nanum Gothic Coding', 'D2Coding', ui-monospace, monospace;
+  --f-num: 'VT323', ui-monospace, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--void);
+  color: var(--bone);
+  font: 15px/1.6 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 24px;
+  box-sizing: border-box;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--torch); outline-offset: 2px; }
+
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 16px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { margin: 0; font: 800 28px/1.1 var(--f-display); letter-spacing: 0.04em; text-wrap: balance; }
+h1 small { font: 400 20px var(--f-num); color: var(--ash); letter-spacing: 0.08em; margin-left: 10px; }
+.sys { display: flex; gap: 8px; }
+.sys button {
+  background: transparent; border: 1px solid var(--stone); padding: 4px 12px;
+  font: 400 18px/1 var(--f-num); letter-spacing: 0.06em; color: var(--ash); cursor: pointer;
+}
+.sys button:hover { color: var(--bone); border-color: var(--ash); }
+/* ui/ 그림이 있으면 제목·SAVE/LOAD/NEW·화면 테두리를 그림으로 바꾼다 */
+h1.art img { display: block; height: 84px; width: auto; max-width: 100%; }
+.sys button.art { border: 0; padding: 0; background: none; }
+.sys button.art img { display: block; height: 40px; width: auto; transition: transform 60ms, filter 60ms; }
+.sys button.art:hover img { filter: brightness(1.15); }
+.sys button.art:active img { filter: brightness(0.75); transform: translateY(1px); }
+.viewFrame .frameArt { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+.viewFrame.framed { border: 0; }
+.viewFrame.framed .compass { top: 11%; }
+.viewFrame.framed #world { inset: auto; top: 7.5%; left: 6.5%; width: 87%; height: 85.5%; }  /* 지상 지도는 테두리 구멍 안에만 (가장자리는 테두리 밑으로 살짝) */
+.viewFrame.framed .event { left: 9.5%; right: 9.5%; bottom: 9.5%; max-height: 78%; }  /* frame.png 안쪽 구멍(가로 8~92%, 세로 9~93%) 안에 든다 */
+
+.game { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
+.main { display: grid; gap: 12px; min-width: 0; }
+
+.viewFrame {
+  position: relative; border: 1px solid var(--stone); background: var(--void);
+  aspect-ratio: 16 / 10; max-width: 100%; overflow: hidden;
+  box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.8);
+}
+/* 렌즈 비네트와 미세한 필름 결 */
+.viewFrame::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 55%, transparent 45%, rgba(0, 0, 0, 0.75) 100%);
+}
+.flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 1; }
+.flash.hurt { background: radial-gradient(ellipse at center, transparent 30%, rgba(200, 20, 10, 0.55)); animation: flash 0.5s ease-out; }
+.flash.fade { background: #000; animation: flash 0.9s ease-out; }
+@keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+.noGL { position: absolute; inset: 0; display: grid; place-content: center; padding: 24px; text-align: center; color: var(--ash); z-index: 2; }
+@media (prefers-reduced-motion: reduce) { .flash.hurt, .flash.fade, .flash.heal, .flash.fire { animation-duration: 0.01s; } }
+#view, #world { display: block; width: 100%; height: 100%; }
+#world { position: absolute; inset: 0; image-rendering: pixelated; }
+.compass {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2;
+  font: 700 15px/1 var(--f-display); color: var(--bone); letter-spacing: 0.2em;
+  background: rgba(7, 8, 13, 0.55); border: 1px solid rgba(233, 162, 59, 0.45);
+  padding: 6px 14px 6px 18px; backdrop-filter: blur(4px);
+}
+
+/* 사건 창: 던전 창 위에 겹친다 */
+.event {
+  position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 3;
+  background: rgba(14, 16, 24, 0.86); border: 1px solid rgba(233, 162, 59, 0.6);
+  backdrop-filter: blur(6px);
+  padding: 14px 16px 12px; display: grid; gap: 8px; max-height: calc(100% - 20px); overflow: auto;
+}
+.event h2 { margin: 0; font: 700 18px/1.3 var(--f-display); color: var(--torch); }
+.event p { margin: 0; white-space: pre-line; max-width: 62ch; }
+.choices { display: grid; gap: 4px; margin-top: 4px; }
+.choice {
+  text-align: left; background: transparent; border: 1px solid transparent; padding: 4px 8px;
+  cursor: pointer; display: flex; gap: 10px; align-items: baseline;
+}
+.choice:hover, .choice:focus-visible { border-color: var(--stone); background: var(--void); outline: none; }
+.choice .num { font: 400 20px/1 var(--f-num); color: var(--torch); }
+
+.ending {
+  position: absolute; inset: 0; z-index: 4; background: rgba(7, 8, 13, 0.88); display: grid; place-content: center;
+  text-align: center; gap: 12px; padding: 16px; border: 1px solid var(--torch);
+}
+.ending h2 { margin: 0; font: 800 30px/1.2 var(--f-display); color: var(--torch); }
+.ending p { margin: 0; color: var(--bone); }
+.ending button {
+  justify-self: center; background: transparent; border: 1px solid var(--torch); color: var(--torch);
+  padding: 6px 18px; font: 400 20px/1 var(--f-num); letter-spacing: 0.08em; cursor: pointer;
+}
+
+.log { list-style: none; margin: 0; padding: 10px 12px; border: 1px solid var(--stone); background: var(--panel);
+  min-height: 9.6em; display: grid; align-content: end; gap: 2px; font-size: 14px; }
+.log li { color: var(--ash); }
+.log li:last-child { color: var(--bone); }
+.log li.warn { color: var(--blood); }
+.log li.good { color: var(--moss); }
+.log li.hint { color: var(--torch); }
+
+.below { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: stretch; }
+.pad { display: grid; grid-template-columns: repeat(3, 1fr) 1.2fr; gap: 6px; align-content: stretch; }
+.pad button {
+  background: var(--panel); border: 1px solid var(--stone); padding: 8px 4px; cursor: pointer;
+  font-size: 13px; display: grid; gap: 0; justify-items: center; touch-action: manipulation;
+}
+.pad button:hover { border-color: var(--ash); }
+.pad button:active { background: var(--stone); }
+.pad button kbd { font: 400 18px/1 var(--f-num); color: var(--torch); }
+.pad .search { grid-row: span 2; grid-column: 4; }
+/* buttons/<동작>.png 그림이 있으면 그 그림이 버튼이 된다 */
+.pad.art { grid-template-columns: repeat(3, 1fr) 1.08fr; align-content: start; }  /* 조사 몸통 위아래가 옆 두 줄 몸통과 맞는 너비 */
+.pad button.art { background: none; border: 0; padding: 0; aspect-ratio: 1; }
+.pad button.art.search { aspect-ratio: auto; }
+.pad button.art img { width: 100%; height: 100%; object-fit: fill; display: block; transition: transform 60ms, filter 60ms; }
+.pad button.art:hover img { filter: brightness(1.15); }
+.pad button.art:active img { filter: brightness(0.75); transform: translateY(2px) scale(0.97); }
+.pad button.art:focus-visible { outline: 1px solid var(--torch); }
+
+aside { display: grid; gap: 12px; min-width: 0; }
+.card { border: 1px solid var(--stone); background: var(--panel); padding: 12px; display: grid; gap: 8px; }
+.card h3 { margin: 0; font: 400 16px/1 var(--f-num); letter-spacing: 0.14em; color: var(--ash); text-transform: uppercase; }
+#minimap { width: 100%; aspect-ratio: 1; max-width: 100%; display: block; background: var(--void); }
+.floorName { font: 700 15px/1.3 var(--f-display); }
+dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; }
+dt { color: var(--ash); font-size: 13px; }
+dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant-numeric: tabular-nums; }
+.hpTrack { height: 6px; background: var(--void); border: 1px solid var(--stone); }
+/* 파티원 */
+.party { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.party li { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center; }
+.party li.down { opacity: 0.45; }
+.pm-info { display: grid; gap: 4px; min-width: 0; }
+/* 얼굴: portraits/<face>.png 를 정사각형으로 채우고, 없으면 직업 문양 */
+.face {
+  position: relative; width: 56px; aspect-ratio: 1; border: 1px solid var(--stone); background: var(--void);
+  display: grid; place-items: center; overflow: hidden;
+}
+.face::before { content: attr(data-glyph); font-size: 26px; color: var(--torch); opacity: 0.55; }
+.face img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.party li.down .face img { filter: grayscale(1) brightness(0.6); }
+.pm-top { display: flex; align-items: baseline; gap: 8px; }
+.pm-top b { font: 700 15px/1 var(--f-display); }
+.pm-top .cls { color: var(--ash); font-size: 12px; }
+.pm-top .lv { margin-left: auto; font: 400 17px/1 var(--f-num); color: var(--torch); }
+.bar { height: 5px; background: var(--void); border: 1px solid var(--stone); }
+.bar i { display: block; height: 100%; background: var(--moss); transition: width 0.3s; }
+.bar i.low { background: var(--blood); }
+.pm-num { display: flex; justify-content: space-between; font: 400 16px/1 var(--f-num); color: var(--ash); font-variant-numeric: tabular-nums; }
+
+/* 전투 창 */
+.battle {
+  background: var(--panel); border: 1px solid rgba(216, 86, 74, 0.7);
+  padding: 12px 16px; display: grid; gap: 6px;
+}
+.battle:not([hidden]) + .below { display: none; }
+.bHead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bHead h2 { margin: 0; font: 700 18px/1.2 var(--f-display); color: var(--blood); }
+.foes { display: flex; gap: 6px; flex: 1; min-width: 120px; }
+.foes i { flex: 1; max-width: 70px; height: 6px; background: var(--void); border: 1px solid var(--stone); }
+.foes i s { display: block; height: 100%; background: var(--blood); transition: width 0.3s; text-decoration: none; }
+.foes i.dead { opacity: 0.25; }
+.bLog { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; font-size: 14px; min-height: 4.4em; align-content: end; }
+.bLog li { color: var(--ash); }
+.bLog li:last-child { color: var(--bone); }
+.bLog li.warn { color: var(--blood); }
+.bLog li.good { color: var(--moss); }
+.bPrompt { margin: 2px 0 0; color: var(--torch); font-size: 14px; }
+.bCmds { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.choice:disabled { opacity: 0.35; cursor: not-allowed; }
+.flash.heal { background: radial-gradient(ellipse at center, transparent 30%, rgba(120, 230, 140, 0.4)); animation: flash 0.6s ease-out; }
+.flash.fire { background: radial-gradient(ellipse at center, rgba(255, 160, 40, 0.5), rgba(255, 60, 0, 0.25)); animation: flash 0.6s ease-out; }
+.inventory { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.inventory li { display: grid; }
+.inventory b { color: var(--torch); font-weight: 700; }
+.inventory span { color: var(--ash); }
+.inventory .empty { color: var(--ash); }
+.keys { color: var(--ash); font-size: 12px; line-height: 1.7; margin: 0; }
+.keys kbd { font: 400 15px var(--f-num); color: var(--bone); border: 1px solid var(--stone); padding: 0 4px; }
+
+@media (max-width: 760px) {
+  .game { grid-template-columns: minmax(0, 1fr); }
+  aside { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  aside .help { display: none; }
+  .below { grid-template-columns: minmax(0, 1fr); }
+  .pad { order: -1; }
+  h1 { font-size: 24px; }
+  /* 폰: 제목과 SAVE/LOAD/NEW 가 한 줄에 들어가게 화면 너비에 맞춰 줄인다 */
+  header:has(h1.art) { flex-wrap: nowrap; gap: 12px; }
+  .sys { gap: 6px; }
+  h1.art img { height: auto; width: min(170px, 35vw); }
+  .sys button.art img { height: auto; width: min(64px, 16vw); }
+}
+@media (max-width: 420px) {
+  aside { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>잿빛 수도원<small>DUNGEON PROTOTYPE · 3D</small></h1>
+    <div class="sys">
+      <button id="btnSave" type="button">SAVE</button>
+      <button id="btnLoad" type="button">LOAD</button>
+      <button id="btnNew" type="button">NEW</button>
+    </div>
+  </header>
+
+  <div class="game">
+    <div class="main">
+      <div class="viewFrame" id="viewFrame">
+        <canvas id="view" aria-label="던전 1인칭 시점"></canvas>
+        <canvas id="world" aria-label="위에서 내려다본 숲속나라" hidden></canvas>
+        <div class="flash" id="flash"></div>
+        <p class="noGL" id="noGL" hidden>이 브라우저에서는 3D 화면을 그릴 수 없습니다. WebGL을 지원하는 브라우저에서 열어 주세요.</p>
+        <div class="compass" id="dir" aria-label="바라보는 방향">동</div>
+        <section class="event" id="event" hidden aria-live="polite">
+          <h2 id="evTitle"></h2>
+          <p id="evText"></p>
+          <div class="choices" id="evChoices"></div>
+        </section>
+        <section class="ending" id="ending" hidden>
+          <h2 id="endTitle"></h2>
+          <p id="endText"></p>
+          <button id="endRestart" type="button">다시 탐험하기</button>
+        </section>
+      </div>
+
+      <section class="battle" id="battle" hidden aria-live="polite">
+        <div class="bHead"><h2 id="bTitle"></h2><div class="foes" id="bFoes"></div></div>
+        <ul class="bLog" id="bLog"></ul>
+        <p class="bPrompt" id="bPrompt"></p>
+        <div class="choices bCmds" id="bCmds"></div>
+      </section>
+      <div class="below">
+      <ul class="log" id="log" aria-live="polite"></ul>
+
+      <div class="pad" aria-label="이동">
+        <button type="button" data-act="left"><kbd>A</kbd>좌회전</button>
+        <button type="button" data-act="fwd"><kbd>W</kbd>전진</button>
+        <button type="button" data-act="right"><kbd>D</kbd>우회전</button>
+        <button type="button" data-act="search" class="search"><kbd>F</kbd>조사</button>
+        <button type="button" data-act="sl"><kbd>Q</kbd>좌로 이동</button>
+        <button type="button" data-act="back"><kbd>S</kbd>후퇴</button>
+        <button type="button" data-act="sr"><kbd>E</kbd>우로 이동</button>
+      </div>
+      </div>
+    </div>
+
+    <aside>
+      <section class="card">
+        <h3>Map</h3>
+        <div class="floorName" id="floorName"></div>
+        <canvas id="minimap" width="176" height="176" aria-label="지금까지 본 지도"></canvas>
+      </section>
+      <section class="card">
+        <h3>Party</h3>
+        <ul class="party" id="party"></ul>
+        <dl>
+          <dt>금화</dt><dd id="gold"></dd>
+        </dl>
+      </section>
+      <section class="card">
+        <h3>Items</h3>
+        <ul class="inventory" id="inventory"></ul>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script src="data.js"></script>
+<script src="music.js"></script>
+<script src="engine.js"></script>

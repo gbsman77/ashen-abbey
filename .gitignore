@@ -1,0 +1,5 @@
+# 작업용 파일 (게임 실행에 안 쓰임)
+screenshots/
+music-preview/
+world/*.zip
+world/GEMINI_*
