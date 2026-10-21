@@ -1787,7 +1787,8 @@
   }
 
   // ----- 그리기 -----
-  const VIEW_COLS = 15;
+  // 한 화면에 보이는 칸 수: 좁은 폰에서는 칸을 줄여 그림을 크게
+  const viewCols = () => { const w = worldCv.clientWidth || 600; return w < 420 ? 10 : w < 640 ? 12 : 15; };
   function fitWorld() {
     const r = worldCv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
@@ -1842,7 +1843,7 @@
     const dx = S.wx - hero.x, dy = S.wy - hero.y, dist = Math.hypot(dx, dy);
     if (dist > 3) snapHero();
     else if (dist > 0) { const k = Math.min(1, sp / dist); hero.x += dx * k; hero.y += dy * k; hero.walk += dt; }
-    const T = Math.ceil(W / VIEW_COLS);
+    const T = Math.ceil(W / viewCols());
     const viewW = W / T, viewH = H / T;
     const clampC = (c, n, v) => (n <= v ? n / 2 : Math.max(v / 2, Math.min(n - v / 2, c)));
     const camX = clampC(hero.x + 0.5, cols, viewW), camY = clampC(hero.y + 0.5, rows, viewH);
@@ -2192,8 +2193,49 @@
     const act = map[e.key];
     if (act) { e.preventDefault(); ACTIONS[act](); }
   });
-  document.querySelectorAll('[data-act]').forEach((b) =>
-    b.addEventListener('click', () => ACTIONS[b.dataset.act]()));
+  // 패드 버튼: 누르는 즉시 움직이고, 지상에서 걷기 버튼을 누르고 있으면 계속 걷는다
+  const HOLD = { fwd: 1, back: 1, left: 1, right: 1, sl: 1, sr: 1 };
+  let holdTimer = 0;
+  const stopHold = () => { clearTimeout(holdTimer); holdTimer = 0; };
+  document.querySelectorAll('[data-act]').forEach((b) => {
+    const act = b.dataset.act;
+    b.addEventListener('pointerdown', (e) => {
+      if (e.button) return;
+      e.preventDefault();
+      stopHold();
+      ACTIONS[act]();
+      const repeat = () => {
+        if (HOLD[act] && inWorld() && !dialog && !S.battle) ACTIONS[act]();
+        holdTimer = setTimeout(repeat, 170);
+      };
+      if (HOLD[act]) holdTimer = setTimeout(repeat, 320);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => b.addEventListener(ev, stopHold));
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
+    // 키보드로 누른 클릭(Enter·Space)만 따로 받는다. 손가락·마우스는 pointerdown 에서 이미 처리
+    b.addEventListener('click', (e) => { if (e.detail === 0) ACTIONS[act](); });
+  });
+  window.addEventListener('blur', stopHold);
+
+  // 화면 밀기: 위로 밀면 전진, 아래로 후퇴, 옆으로 회전(지상에선 그쪽으로 걷기), 짧게 톡 치면 조사
+  (function swipe() {
+    const el = $('viewFrame');
+    let sx = 0, sy = 0, st = 0, id = null;
+    el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' || e.target.closest('.event, .ending, button')) return;
+      id = e.pointerId; sx = e.clientX; sy = e.clientY; st = performance.now();
+    });
+    el.addEventListener('pointerup', (e) => {
+      if (e.pointerId !== id) return;
+      id = null;
+      if (dialog || S.battle || S.ended) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy, ax = Math.abs(dx), ay = Math.abs(dy);
+      if (Math.max(ax, ay) < 24) { if (performance.now() - st < 300) ACTIONS.search(); return; }
+      if (ax > ay) ACTIONS[dx > 0 ? 'right' : 'left']();
+      else ACTIONS[dy < 0 ? 'fwd' : 'back']();
+    });
+    el.addEventListener('pointercancel', () => { id = null; });
+  })();
   // ui/ 그림: 제목(title), SAVE/LOAD/NEW(save·load·new), 던전 화면 테두리(frame, 가운데가 투명한 16:10)
   const uiArt = (file, done) => { const img = new Image(); img.alt = ''; img.onload = () => done(img); img.src = 'ui/' + file + '.png'; };
   uiArt('title', (img) => { const h = document.querySelector('header h1'); h.setAttribute('aria-label', D.title); h.textContent = ''; h.append(img); h.classList.add('art'); });

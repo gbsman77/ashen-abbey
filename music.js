@@ -418,7 +418,7 @@
     const go = () => { if (want && (!cur || cur.name !== want)) { fadeOut(cur); cur = null; start(want); } };
     if (ctx.state === 'running') go(); else ctx.resume().then(go, () => {});
   }
-  ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => window.addEventListener(ev, unlock, { capture: true, passive: true }));
+  ['pointerdown', 'keydown', 'touchstart', 'touchend', 'click'].forEach((ev) => window.addEventListener(ev, unlock, { capture: true, passive: true }));
   window.addEventListener('keydown', (e) => {
     if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA/.test(e.target.tagName)) setMuted(!muted);
   });
@@ -441,7 +441,8 @@
     slider.style.cssText = 'width:92px;margin:0;accent-color:#e9a23b;cursor:pointer';
     slider.addEventListener('input', () => setVolume(slider.value / 100));
     box.append(btn, slider);
-    document.body.append(box);
+    // 화면 위쪽 SAVE/LOAD/NEW 옆에 둔다 (넓은 화면에선 position:fixed 라 그대로 오른쪽 아래에 뜬다)
+    (document.querySelector('.sys') || document.body).append(box);
     applyLevel();
   }
   if (document.body) addButton(); else document.addEventListener('DOMContentLoaded', addButton);
