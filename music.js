@@ -436,13 +436,47 @@
     if (muted && volume > 0) setMuted(false); else applyLevel();
   }
 
-  // 브라우저 자동재생 제한: 첫 클릭·키 입력에서 소리를 연다
+  // 아이폰은 Web Audio 를 '무음 모드 스위치를 따르는 효과음'으로 취급해, 무음 모드면 배경음악이 안 들린다.
+  // 음악 재생(playback)으로 알리고, 그 기능이 없는 옛 iOS 는 소리 없는 <audio> 를 같이 틀어 재생 모드로 바꾼다.
+  let silent = null;
+  function silentWav() {
+    const n = 800, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+    const str = (o, t) => [...t].forEach((c, i) => (b[o + i] = c.charCodeAt(0)));
+    str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVEfmt '); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+    v.setUint16(32, 1, true); v.setUint16(34, 8, true); str(36, 'data'); v.setUint32(40, n, true);
+    b.fill(128, 44);
+    let bin = ''; b.forEach((x) => (bin += String.fromCharCode(x)));
+    return 'data:audio/wav;base64,' + btoa(bin);
+  }
+  function playbackMode() {
+    try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch (e) { /* 지원 안 함 */ }
+    if (!/iPhone|iPad|iPod/.test(navigator.userAgent) && !(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return;
+    if (!silent) {
+      silent = document.createElement('audio');
+      silent.setAttribute('x-webkit-airplay', 'deny');
+      silent.preload = 'auto'; silent.loop = true; silent.src = silentWav();
+    }
+    if (silent.paused) silent.play().catch(() => {});
+  }
+
+  // 브라우저 자동재생 제한: 첫 터치·클릭·키 입력에서 소리를 연다.
+  // 폰에서는 손을 뗄 때(touchend·click)만 '사용자 동작'으로 쳐 주므로 매 입력마다 다시 시도한다.
+  // 다른 앱·전화로 끊기면(interrupted) 화면으로 돌아오거나 다음에 누를 때 다시 켠다.
   function unlock() {
     if (!ensure()) return;
+    playbackMode();
     const go = () => { if (want && (!cur || cur.name !== want)) { fadeOut(cur); cur = null; start(want); } };
     if (ctx.state === 'running') go(); else ctx.resume().then(go, () => {});
   }
-  ['pointerdown', 'keydown', 'touchstart', 'touchend', 'click'].forEach((ev) => window.addEventListener(ev, unlock, { capture: true, passive: true }));
+  ['pointerdown', 'pointerup', 'keydown', 'touchstart', 'touchend', 'mousedown', 'click'].forEach((ev) =>
+    window.addEventListener(ev, unlock, { capture: true, passive: true }));
+  document.addEventListener('visibilitychange', () => {
+    if (!ctx) return;
+    if (document.hidden) { if (silent) silent.pause(); ctx.suspend().catch(() => {}); }
+    else unlock();
+  });
+  window.addEventListener('pageshow', () => { if (ctx && !document.hidden) unlock(); });
   window.addEventListener('keydown', (e) => {
     if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA/.test(e.target.tagName)) setMuted(!muted);
   });
