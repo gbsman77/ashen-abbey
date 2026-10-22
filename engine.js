@@ -478,6 +478,7 @@
   function showBattle() {
     const B = S.battle, mon = D.monsters[B.mid];
     battleUI.hidden = false;
+    if (window.BGM) BGM.battle(); // 전투음악 (music.js)
     $('bTitle').textContent = mon.name;
     const foes = $('bFoes'); foes.textContent = '';
     B.foes.forEach((f) => {
@@ -633,7 +634,7 @@
   }
 
   async function checkEnd() {
-    if (!alive().length) { await wait(400); battleUI.hidden = true; clearFoes(); S.battle = null; busy = false; end('dead'); return true; }
+    if (!alive().length) { await wait(400); battleUI.hidden = true; clearFoes(); S.battle = null; busy = false; if (window.BGM) BGM.battleEnd(); end('dead'); return true; }
     if (!liveFoes().length) { await victory(); return true; }
     showBattleBars();
     return false;
@@ -651,6 +652,7 @@
   async function victory() {
     const B = S.battle, mon = D.monsters[B.mid];
     showBattleBars();
+    if (window.BGM) BGM.victory(); // 승리 팡파레
     const exp = mon.exp * B.foes.length, gold = mon.gold * B.foes.length + roll(0, mon.gold);
     S.gold += gold;
     blog('승리! 경험치 ' + exp + ', 금화 ' + gold + '닢을 얻었다.', 'good');
@@ -679,6 +681,7 @@
 
   function endBattle() {
     S.battle = null;
+    if (window.BGM) BGM.battleEnd();
     busy = false;
     battleUI.hidden = true;
     clearFoes();
@@ -2154,6 +2157,7 @@
     snapHero();
     preloadWorldArt();
     battleUI.hidden = true; clearFoes(); busy = false;
+    if (window.BGM) BGM.battleEnd(); // 전투 도중 새로 시작·불러오기
     dialog = null;
     $('event').hidden = true;
     $('ending').hidden = !S.ended;

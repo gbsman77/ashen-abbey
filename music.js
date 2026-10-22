@@ -198,7 +198,54 @@
     };
   }
 
-  const SONGS = { town: songTown, field: songField, dungeon1: songDungeon1, dungeon2: songDungeon2, crypt: songCrypt };
+  // 전투: 빠르고 박진감 있게. A단조 168 BPM, 16분 하이햇과 몰아치는 킥·스네어, 마디 끝마다 탐 연타.
+  function songBattle() {
+    const ch = ['Am', 'Am', 'Am', 'F', 'G', 'Em', 'Am', 'F', 'G', 'E', 'Dm', 'Am', 'Dm', 'E', 'F', 'E'];
+    const mel = bars([
+      'A4+E5/2 -/2 A4+E5/2 -/4 A4+E5/2 -/2 G4+D5/2', 'A4+E5/2 -/2 A4+E5/2 -/4 C5+G5/3 D5+A5/3',
+      'A5/3 E5/3 A5/2 C6/4 B5/4', 'A5/3 F5/3 C5/2 F5/4 A5/4', 'B5/3 G5/3 D5/2 G5/4 B5/4', 'E6/8 D6/4 B5/4',
+      'A5/3 E5/3 A5/2 C6/4 E6/4', 'F6/6 E6/2 D6/4 C6/4', 'D6/6 C6/2 B5/4 G5/4', 'G#5/8 B5/4 E6/4',
+      'D6/6 F6/2 A5/8', 'C6/6 E6/2 A5/8', 'F6/4 E6/4 D6/4 F6/4', 'E6/8 G#5/8',
+      'A5/4 C6/4 F6/4 E6/2 D6/2', 'E6/2 -/2 E6/2 -/2 B5/2 G#5/2 E5/4'
+    ]);
+    const low = mel.filter((e) => e.s >= 32).map((e) => ({ ...e, m: e.m.map((x) => x - 12) }));
+    const bass = [];
+    ch.forEach((c, bar) => {
+      const r = chord(c, 2)[0];
+      [0, 0, 12, 0, 0, 12, 7, 12].forEach((d, i) => bass.push({ s: bar * 16 + i * 2, l: 2, m: [r + d] }));
+    });
+    const beat = 'k..ks.k.k.k.s..k', fill = 'k.s.rrr.rrr.ssss', hat = 'hhhohhhohhhohhho';
+    const ks = ch.map((c, i) => (i % 4 === 3 ? fill : beat));
+    const hats = ch.map((c, i) => ([2, 10].includes(i) ? 'c' + hat.slice(1) : i % 4 === 3 ? 'hhhohhho........' : hat));
+    return {
+      bpm: 168, bars: 16, fadeIn: 0.15, echo: { time: 0.18, fb: 0.15, mix: 0.12 },
+      tracks: [
+        { inst: 'brass', vol: 0.3, send: 0.2, ev: mel },
+        { inst: 'brass', vol: 0.12, send: 0.15, ev: low },
+        { inst: 'guitar', vol: 0.11, send: 0.1, ev: comp(ch, 3, [[0, 2], [3, 2], [6, 2], [10, 2], [12, 2]], (t) => [t[0], t[2], t[0] + 12]) },
+        { inst: 'pbass', vol: 0.3, send: 0, ev: bass }
+      ],
+      drums: drums(ks).concat(drums(hats)),
+      dvol: 0.62
+    };
+  }
+
+  // 승리 팡파레: 짧게 한 번만. C장조, 따따따 따—안, A♭·B♭를 지나 C로 끝난다.
+  function songVictory() {
+    return {
+      bpm: 132, bars: 4, once: true, fadeIn: 0.05, echo: { time: 0.23, fb: 0.25, mix: 0.25 },
+      tracks: [
+        { inst: 'brass', vol: 0.32, send: 0.35, ev: bars(['G5/1 -/1 G5/1 -/1 G5/1 -/1 C6/6 A#5/4', 'G#5/4 A#5/4 C6/4 -/1 A#5/1 C6/2', 'C6/12 -/4', '-/16']) },
+        { inst: 'brass', vol: 0.2, send: 0.35, ev: bars(['E5/1 -/1 E5/1 -/1 E5/1 -/1 G5/6 F5/4', 'D#5/4 F5/4 G5/4 -/1 F5/1 G5/2', 'E5/12 -/4', '-/16']) },
+        { inst: 'harp', vol: 0.12, send: 0.5, ev: arp(['C', 'C', 'C'], 4, [0, 1, 2, 3, 4, 5, 4, 3, 2, 1, 2, 3, 4, 5, 4, 5], 1).filter((e) => e.s >= 32) },
+        { inst: 'pbass', vol: 0.28, send: 0, ev: bars(['C3/12 C3/2 D3/2', 'G#2/4 A#2/4 C3/8', 'C3/12 -/4', '-/16']) }
+      ],
+      drums: drums(['k.s.s.c.........', 'k...k...k.s.ssss', 'c...............', '................']),
+      dvol: 0.55
+    };
+  }
+
+  const SONGS = { town: songTown, field: songField, dungeon1: songDungeon1, dungeon2: songDungeon2, crypt: songCrypt, battle: songBattle, victory: songVictory };
   const SCENES = { town: 'town', field: 'field', b1: 'dungeon1', b2: 'dungeon2', crypt: 'crypt' };
   const cache = {};
   const song = (name) => cache[name] || (cache[name] = SONGS[name]());
@@ -225,6 +272,7 @@
 
   // 악기 설정: wave(파형), a/d/s/r(엔벨로프), vib(떨림), lp(저역 필터), detune(겹친 음)
   const INST = {
+    pbass: { wave: 0.25, a: 0.004, d: 0.15, s: 0.6, r: 0.05, lp: 900 },
     flute: { wave: 0.5, a: 0.04, d: 0.25, s: 0.7, r: 0.18, vib: [5.2, 6, 0.18], lp: 2600 },
     soft: { wave: 'triangle', a: 0.02, d: 0.3, s: 0.4, r: 0.3 },
     harp: { wave: 0.125, a: 0.003, d: 0.35, s: 0, r: 0.2, lp: 3200 },
@@ -291,6 +339,13 @@
   function drum(ctx, out, kind, t, vol) {
     const g = ctx.createGain();
     g.connect(out);
+    if (kind === 'r') { // 탐: 짧게 내려가는 음
+      const o = ctx.createOscillator();
+      o.type = 'triangle'; o.frequency.setValueAtTime(240, t); o.frequency.exponentialRampToValueAtTime(110, t + 0.14);
+      g.gain.setValueAtTime(vol * 1.1, t); g.gain.setTargetAtTime(0, t + 0.01, 0.09);
+      o.connect(g); o.start(t); o.stop(t + 0.6);
+      return;
+    }
     if (kind === 'k' || kind === 't') { // 킥, 팀파니: 내려가는 사인파
       const o = ctx.createOscillator();
       const tim = kind === 't';
@@ -358,6 +413,7 @@
 
   // ---------- 재생 ----------
   let ctx = null, master = null, cur = null, want = null;
+  let sceneSong = null, fight = null; // 지금 장면의 곡, 전투 중이면 'battle'/'victory'
   let muted = false, volume = 0.75; // volume 0~1, 처음엔 예전보다 조금 작게
   try {
     muted = localStorage.getItem('dungeon-bgm-muted') === '1';
@@ -386,24 +442,25 @@
     const stepDur = 60 / sg.bpm / 4, total = sg.bars * 16;
     const now = ctx.currentTime + 0.08;
     mix.bus.gain.setValueAtTime(0, now);
-    mix.bus.gain.linearRampToValueAtTime(1, now + 1.2);
+    mix.bus.gain.linearRampToValueAtTime(1, now + (sg.fadeIn || 1.2));
     const p = { name, sg, mix, step: 0, t: now };
     p.timer = setInterval(() => {
       // 앞으로 0.25초 분량을 미리 예약한다
       while (p.t < ctx.currentTime + 0.25) {
         scheduleSteps(ctx, sg, mix, p.step, p.step + 1, p.t, stepDur);
         p.step = (p.step + 1) % total; p.t += stepDur;
+        if (sg.once && p.step === 0) { clearInterval(p.timer); break; } // 팡파레처럼 한 번만 치는 곡
       }
     }, 40);
     cur = p;
   }
-  function fadeOut(p) {
+  function fadeOut(p, sec) {
     if (!p) return;
     clearInterval(p.timer);
     const t = ctx.currentTime;
     p.mix.bus.gain.cancelScheduledValues(t);
     p.mix.bus.gain.setValueAtTime(p.mix.bus.gain.value, t);
-    p.mix.bus.gain.linearRampToValueAtTime(0, t + 0.8);
+    p.mix.bus.gain.linearRampToValueAtTime(0, t + (sec || 0.8));
     setTimeout(() => p.mix.bus.disconnect(), 3500);
   }
 
@@ -412,7 +469,7 @@
     want = name || null;
     if (cur && cur.name === want) return;
     if (!ctx || ctx.state !== 'running') return; // 첫 입력 때 시작
-    fadeOut(cur); cur = null;
+    fadeOut(cur, want && song(want).fadeIn ? 0.25 : 0.8); cur = null; // 전투곡은 바로 끊고 들어간다
     if (want) start(want);
   }
 
@@ -522,7 +579,11 @@
     town: () => play('town'), field: () => play('field'),
     dungeon1: () => play('dungeon1'), dungeon2: () => play('dungeon2'), crypt: () => play('crypt'),
     // 게임 장면 키(지역 town/field, 층 b1/b2)로 고른다. 모르는 키면 지금 곡을 이어 간다.
-    scene: (key) => { if (key == null) play(null); else if (SCENES[key]) play(SCENES[key]); },
+    scene: (key) => { if (key == null) sceneSong = null; else if (SCENES[key]) sceneSong = SCENES[key]; else return; if (!fight) play(sceneSong); },
+    // 전투: 시작하면 전투곡, 이기면 팡파레, 끝나면 그 장면의 곡으로 돌아간다
+    battle: () => { if (fight !== 'victory') { fight = 'battle'; play('battle'); } },
+    victory: () => { fight = 'victory'; play('victory'); },
+    battleEnd: () => { fight = null; play(sceneSong); },
     toggle: () => setMuted(!muted),
     setVolume,
     get volume() { return volume; },
