@@ -10,6 +10,7 @@
   const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const $ = (id) => document.getElementById(id);
+  const sfx = (name) => { if (window.BGM && BGM.sfx) BGM.sfx(name); }; // 효과음 (music.js)
   const view = $('view');
   const mini = $('minimap'), mctx = mini.getContext('2d');
   const css = getComputedStyle(document.documentElement);
@@ -89,6 +90,7 @@
       } else { bump(d, lock.locked); return; }
     }
     S.x = nx; S.y = ny; S.steps++;
+    sfx('stepStone');
     afterStep();
   }
 
@@ -100,6 +102,7 @@
   }
 
   function bump(d, msg) {
+    sfx('bump');
     log(msg, 'warn');
     cam.bump = { dx: DX[d], dz: DY[d], t: 0 };
   }
@@ -239,7 +242,20 @@
   }
 
   // 지상(area)과 던전(floor) 사이를 오간다
+  // 장소를 옮길 때: 소리를 내고 화면 전환 막(transition.js)이 다 가렸을 때 장면을 바꾼다
   function warpTo(w) {
+    const fromWorld = inWorld(), toWorld = !!w.area;
+    const sound = !toWorld ? (fromWorld ? 'enterDungeon' : 'stairs')
+      : !fromWorld ? 'leaveDungeon' : w.area === 'town' ? 'enterTown' : S.area === 'town' ? 'leaveTown' : null;
+    if (sound) sfx(sound);
+    if (!window.Curtain) { swapPlace(w); flash('fade'); return; }
+    Curtain.run({
+      style: fromWorld && toWorld ? 'iris' : 'dark',
+      title: toWorld ? D.areas[w.area].name : D.floors[w.floor].name,
+      sub: toWorld ? '' : D.title || ''
+    }, () => swapPlace(w));
+  }
+  function swapPlace(w) {
     if (w.area) {
       S.mode = 'world'; S.area = w.area; S.wx = w.x; S.wy = w.y; S.wdir = w.dir || 2;
       snapHero();
@@ -251,7 +267,6 @@
       log(floor().name + '에 도착했다.');
     }
     S.calm = 0;
-    flash('fade');
     draw();
   }
 
@@ -588,14 +603,15 @@
 
   async function partyAct(m, cmd) {
     const mon = D.monsters[S.battle.mid];
-    if (cmd.act === 'guard') { blog(m.name + '은(는) 방어 자세를 취했다.'); await wait(350); return; }
+    if (cmd.act === 'guard') { sfx('guard'); blog(m.name + '은(는) 방어 자세를 취했다.'); await wait(350); return; }
     if (cmd.act === 'attack') {
       const [f, i] = pick(liveFoes());
       lunge(-1);
-      if (Math.random() > 0.88) { blog(m.name + '의 공격이 빗나갔다.'); await wait(550); return; }
+      if (Math.random() > 0.88) { sfx('miss'); blog(m.name + '의 공격이 빗나갔다.'); await wait(550); return; }
       const crit = Math.random() < 0.1;
       const dmg = Math.max(1, roll(m.atk, m.atk + 4) - mon.def) * (crit ? 2 : 1);
       hitFoe(i, dmg);
+      sfx(crit ? 'crit' : 'slash');
       blog(m.name + '의 공격! ' + mon.name + '에게 ' + dmg + '의 피해' + (crit ? ' (급소!)' : '') + (f.hp <= 0 ? ', 쓰러뜨렸다.' : '.'), crit ? 'good' : '');
       await wait(650);
       return;
@@ -607,10 +623,10 @@
       const t = alive().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
       const amt = Math.min(t.maxHp - t.hp, spellRoll(m, sp));
       t.hp += amt;
-      flash('heal');
+      flash('heal'); sfx('heal');
       blog(m.name + '의 ' + sp.name + '! ' + t.name + '의 체력이 ' + amt + ' 회복되었다.', 'good');
     } else {
-      flash('fire');
+      flash('fire'); sfx('fire');
       const hits = liveFoes();
       let downs = 0;
       for (const [f, i] of hits) { hitFoe(i, spellRoll(m, sp)); if (f.hp <= 0) downs++; }
@@ -629,7 +645,7 @@
     foeLunge(i);
     const br = mon.breath; // 숨결: 파티 전원에게, 방어력 무시 (방어 자세면 절반)
     if (br && Math.random() < br.chance) {
-      flash('fire');
+      flash('fire'); sfx('fire');
       cam.bump = { dx: 0, dz: 0, t: 0, shake: true };
       const hurt = [];
       S.party.forEach((p, j) => {
@@ -644,11 +660,11 @@
       await wait(800);
       return;
     }
-    if (Math.random() > 0.85) { blog(mon.name + '의 공격을 ' + m.name + '이(가) 피했다.'); await wait(550); return; }
+    if (Math.random() > 0.85) { sfx('dodge'); blog(mon.name + '의 공격을 ' + m.name + '이(가) 피했다.'); await wait(550); return; }
     let dmg = Math.max(1, roll(mon.atk - 1, mon.atk + 3) - (mon.magic ? 0 : m.def));
     if (guards.includes(k)) dmg = Math.max(1, Math.floor(dmg / 2));
     m.hp = Math.max(0, m.hp - dmg);
-    flash('hurt');
+    flash('hurt'); sfx(guards.includes(k) ? 'block' : 'hit');
     cam.bump = { dx: 0, dz: 0, t: 0, shake: true };
     blog(mon.name + '의 공격! ' + m.name + '이(가) ' + dmg + '의 피해를 입었다' + (m.hp <= 0 ? '. ' + m.name + '이(가) 쓰러졌다!' : '.'), 'warn');
     updateStatus();
@@ -1944,6 +1960,7 @@
     const ter = ev ? null : terrainAt(nx, ny);
     if (!ch || (!ev && !(ter && ter.walk))) { draw(); return; }
     S.wx = nx; S.wy = ny; S.steps++;
+    sfx('step');
     S.calm++;
     draw();
     if (ev && ev.go) { warpTo(ev.go); return; }
@@ -2363,6 +2380,8 @@
     sl: () => (inWorld() ? walk(3) : tryMove(3)), sr: () => (inWorld() ? walk(1) : tryMove(1)),
     search: () => (inWorld() ? talk() : search())
   };
+  // 화면 전환 중에는 움직이지 않는다
+  for (const k in ACTIONS) { const f = ACTIONS[k]; ACTIONS[k] = () => { if (!(window.Curtain && Curtain.busy)) f(); }; }
   document.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (titleOpen) { // 시작 화면에서는 Enter 로 맨 위 버튼을 누른다

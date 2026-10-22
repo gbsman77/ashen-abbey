@@ -1,4 +1,5 @@
-// 배경음악: 외부 파일 없이 Web Audio로 합성하는 16비트풍 칩튠 (모두 오리지널 곡).
+// 배경음악: 실제 악기 녹음(instruments/, FluidR3_GM 사운드폰트 CC BY 3.0)을 Web Audio로 연주하는 오리지널 곡.
+// 피아노·현악·관악·합창·하프·팀파니·타이코에 홀 잔향을 입힌다. 악기 파일은 곡에 필요한 것만 그때그때 불러온다.
 // 장면별 곡: town(마을), field(숲속나라 들판), dungeon1(수도원 지하 1층, 은은하게), dungeon2(지하 2층, 웅장하게),
 //            crypt(수도사 묘지, 음침하게)
 // 사용: BGM.play('town') / BGM.scene('b1') / BGM.stop() / BGM.toggle() (M 키, 오른쪽 아래 ♪ 버튼)
@@ -81,12 +82,13 @@
     ]);
     const echo = mel.map((e) => ({ s: e.s + 3, l: e.l, m: e.m.map((x) => x - 12) })).filter((e) => e.s < 256);
     return {
-      bpm: 96, bars: 16, echo: { time: 0.31, fb: 0.32, mix: 0.3 },
+      bpm: 96, bars: 16, timp: 41, echo: { time: 0.31, fb: 0.32, mix: 0.3 },
       tracks: [
-        { inst: 'flute', vol: 0.34, send: 0.45, ev: mel },
-        { inst: 'soft', vol: 0.07, send: 0.6, ev: echo },
-        { inst: 'harp', vol: 0.16, send: 0.5, ev: arp(ch, 4, [0, 1, 2, 4, 3, 2, 1, 2, 0, 1, 2, 4, 5, 4, 2, 1], 1) },
-        { inst: 'bass', vol: 0.32, send: 0.1, ev: comp(ch, 2, [[0, 6], [6, 2], [8, 8]], (t) => [t[0]]).map((e, i) => (i % 3 === 2 ? { ...e, m: [e.m[0] + 7] } : e)) }
+        { inst: 'flute', vol: 0.55, send: 0.35, pan: 0.12, ev: mel },
+        { inst: 'piano', vol: 0.2, send: 0.4, pan: -0.25, ev: echo },
+        { inst: 'harp', vol: 0.2, send: 0.4, pan: -0.35, ev: arp(ch, 4, [0, 1, 2, 4, 3, 2, 1, 2, 0, 1, 2, 4, 5, 4, 2, 1], 1) },
+        { inst: 'strings', vol: 0.13, send: 0.5, pan: 0.3, ev: comp(ch, 3, [[0, 16]], (t) => t) },
+        { inst: 'pizz', vol: 0.35, send: 0.25, pan: 0.15, ev: comp(ch, 2, [[0, 6], [6, 2], [8, 8]], (t) => [t[0]]).map((e, i) => (i % 3 === 2 ? { ...e, m: [e.m[0] + 7] } : e)) }
       ],
       drums: drums(times(16, ['....h.......h...']).map((p, i) => (i % 4 === 3 ? '....h.......h.hh' : p))),
       dvol: 0.35
@@ -114,12 +116,13 @@
       'k.h.s.h.k.k.s.h.', 'k.h.s.h.k.k.s.h.', 'k.h.s.h.k.k.s.h.', 'k.s.s.k.s.s.ssss'
     ];
     return {
-      bpm: 150, bars: 20, echo: { time: 0.2, fb: 0.2, mix: 0.18 },
+      bpm: 150, bars: 20, timp: 40, echo: { time: 0.2, fb: 0.2, mix: 0.18 },
       tracks: [
-        { inst: 'brass', vol: 0.3, send: 0.3, ev: mel },
-        { inst: 'brass', vol: 0.14, send: 0.2, ev: brass2 },
-        { inst: 'guitar', vol: 0.1, send: 0.15, ev: comp(ch, 3, [[0, 2], [3, 2], [6, 2], [8, 2], [11, 2], [14, 2]], (t) => [t[0], t[2], t[0] + 12]) },
-        { inst: 'bass', vol: 0.34, send: 0, ev: pump }
+        { inst: 'trumpet', vol: 0.6, send: 0.3, pan: 0.1, ev: mel },
+        { inst: 'strings', vol: 0.3, send: 0.35, pan: -0.25, ev: mel },
+        { inst: 'horn', vol: 0.35, send: 0.35, pan: 0.3, ev: brass2 },
+        { inst: 'stabs', vol: 0.22, send: 0.25, pan: -0.15, ev: comp(ch, 3, [[0, 2], [3, 2], [6, 2], [8, 2], [11, 2], [14, 2]], (t) => [t[0], t[2], t[0] + 12]) },
+        { inst: 'cello', vol: 0.5, send: 0.15, pan: 0.2, ev: pump }
       ],
       drums: drums(['c.h.s.h.k.k.s.h.', ...D_.slice(1), ...D_, ...D_, 'c.h.s.h.k.k.s.h.', ...D_.slice(1), ...D_]),
       dvol: 0.5
@@ -136,13 +139,13 @@
     // 물방울: 정해 둔 자리에서 높은 음이 똑 떨어진다
     const drip = [[5, 'A6'], [27, 'D7'], [58, 'F6'], [83, 'A6'], [101, 'E7'], [122, 'D7']].map(([s, n]) => ({ s, l: 1, m: [midi(n)] }));
     return {
-      bpm: 64, bars: 8, echo: { time: 0.56, fb: 0.5, mix: 0.45 },
+      bpm: 64, bars: 8, timp: 38, echo: { time: 0.56, fb: 0.5, mix: 0.45 },
       tracks: [
-        { inst: 'bell', vol: 0.22, send: 0.7, ev: mel },
-        { inst: 'bell', vol: 0.05, send: 0.9, ev: drip },
-        { inst: 'pad', vol: 0.09, send: 0.5, ev: comp(ch, 3, [[0, 16]], (t) => t.slice(0, 3)) },
-        { inst: 'soft', vol: 0.06, send: 0.6, ev: arp(ch, 4, [0, 2, 1, 2, 4, 2, 1, 2], 2) },
-        { inst: 'drone', vol: 0.2, send: 0.2, ev: comp(ch, 2, [[0, 16]], (t) => [t[0]]) }
+        { inst: 'piano', vol: 1.2, send: 0.6, pan: 0.1, ev: mel },
+        { inst: 'celesta', vol: 0.14, send: 0.8, pan: 0.45, ev: drip },
+        { inst: 'strings', vol: 0.2, send: 0.55, pan: -0.2, ev: comp(ch, 3, [[0, 16]], (t) => t.slice(0, 3)) },
+        { inst: 'harp', vol: 0.14, send: 0.6, pan: -0.4, ev: arp(ch, 4, [0, 2, 1, 2, 4, 2, 1, 2], 2) },
+        { inst: 'bassLong', vol: 0.16, send: 0.3, pan: 0.15, ev: comp(ch, 2, [[0, 16]], (t) => [t[0]]) }
       ],
       drums: drums(times(8, ['t...............'])),
       dvol: 0.25
@@ -158,17 +161,18 @@
       'D#6/6 C6/2 G#5/8', 'D6/6 A#5/2 F5/8', 'G5/4 A#5/4 D#6/8', 'D#6/4 D6/4 C6/8',
       'C6/4 G#5/4 F5/4 G#5/4', 'B5/8 D6/8', 'C6/12 G5/4', 'B5/4 D6/4 G6/8'
     ]);
-    const counter = mel.filter((e) => e.s >= 128).map((e) => ({ ...e, m: e.m.map((x) => x - 12) }));
+    const counter = mel.map((e) => ({ ...e, m: e.m.map((x) => x - 12) }));
     const bass = comp(ch, 2, [[0, 4], [4, 4], [8, 4], [12, 4]], (t) => [t[0] - 12, t[0]]);
     const D_ = ['t.......t.......', 't.......t.......', 't.......t.......', 't.......t...tttt'];
     return {
-      bpm: 78, bars: 16, echo: { time: 0.38, fb: 0.38, mix: 0.35 },
+      bpm: 78, bars: 16, timp: 36, echo: { time: 0.38, fb: 0.38, mix: 0.35 },
       tracks: [
-        { inst: 'brass', vol: 0.3, send: 0.45, ev: mel },
-        { inst: 'brass', vol: 0.15, send: 0.45, ev: counter },
-        { inst: 'organ', vol: 0.08, send: 0.5, ev: comp(ch, 3, [[0, 8], [8, 8]], (t) => [t[0], t[1], t[2], t[0] + 12]) },
-        { inst: 'choir', vol: 0.07, send: 0.6, ev: comp(ch, 4, [[0, 16]], (t) => [t[1], t[2]]) },
-        { inst: 'bass', vol: 0.26, send: 0.1, ev: bass }
+        { inst: 'strings', vol: 0.55, send: 0.45, pan: -0.2, ev: mel },
+        { inst: 'trumpet', vol: 0.3, send: 0.5, pan: 0.15, ev: mel },
+        { inst: 'horn', vol: 0.25, send: 0.5, pan: 0.3, ev: counter },
+        { inst: 'organ', vol: 0.16, send: 0.55, ev: comp(ch, 3, [[0, 8], [8, 8]], (t) => [t[0], t[1], t[2], t[0] + 12]) },
+        { inst: 'choir', vol: 0.3, send: 0.6, pan: -0.1, ev: comp(ch, 4, [[0, 16]], (t) => [t[1], t[2]]) },
+        { inst: 'contrabass', vol: 0.28, send: 0.25, pan: 0.1, ev: bass }
       ],
       drums: drums(['c.......t.......', ...D_.slice(1), ...D_, 'c.......t.......', ...D_.slice(1), ...D_]),
       dvol: 0.6
@@ -185,13 +189,13 @@
     const toll = [[0, 'E3'], [32, 'E3'], [64, 'E3'], [96, 'B2']].map(([s, n]) => ({ s, l: 16, m: [midi(n)] }));
     const creak = [[13, 'F6'], [45, 'A#6'], [77, 'F6'], [109, 'B6']].map(([s, n]) => ({ s, l: 1, m: [midi(n)] }));
     return {
-      bpm: 54, bars: 8, echo: { time: 0.72, fb: 0.55, mix: 0.5 },
+      bpm: 54, bars: 8, timp: 40, echo: { time: 0.72, fb: 0.55, mix: 0.5 },
       tracks: [
-        { inst: 'choir', vol: 0.12, send: 0.7, ev: mel },
-        { inst: 'bell', vol: 0.16, send: 0.8, ev: toll },
-        { inst: 'bell', vol: 0.04, send: 0.9, ev: creak },
-        { inst: 'pad', vol: 0.08, send: 0.6, ev: comp(ch, 3, [[0, 16]], (t) => [t[0], t[1]]) },
-        { inst: 'drone', vol: 0.24, send: 0.2, ev: comp(ch, 2, [[0, 16]], (t) => [t[0] - 12, t[0]]) }
+        { inst: 'choir', vol: 0.45, send: 0.7, pan: 0.1, ev: mel },
+        { inst: 'bells', vol: 0.3, send: 0.8, pan: -0.3, ev: toll },
+        { inst: 'celesta', vol: 0.1, send: 0.9, pan: 0.45, ev: creak },
+        { inst: 'strings', vol: 0.16, send: 0.6, pan: -0.15, ev: comp(ch, 3, [[0, 16]], (t) => [t[0], t[1]]) },
+        { inst: 'bassLong', vol: 0.2, send: 0.3, ev: comp(ch, 2, [[0, 16]], (t) => [t[0] - 12, t[0]]) }
       ],
       drums: drums(times(8, ['t..t............'])),
       dvol: 0.3
@@ -218,27 +222,28 @@
     const ks = ch.map((c, i) => (i % 4 === 3 ? fill : beat));
     const hats = ch.map((c, i) => ([2, 10].includes(i) ? 'c' + hat.slice(1) : i % 4 === 3 ? 'hhhohhho........' : hat));
     return {
-      bpm: 168, bars: 16, fadeIn: 0.15, echo: { time: 0.18, fb: 0.15, mix: 0.12 },
+      bpm: 168, bars: 16, timp: 33, fadeIn: 0.15, echo: { time: 0.18, fb: 0.15, mix: 0.12 },
       tracks: [
-        { inst: 'brass', vol: 0.3, send: 0.2, ev: mel },
-        { inst: 'brass', vol: 0.12, send: 0.15, ev: low },
-        { inst: 'guitar', vol: 0.11, send: 0.1, ev: comp(ch, 3, [[0, 2], [3, 2], [6, 2], [10, 2], [12, 2]], (t) => [t[0], t[2], t[0] + 12]) },
-        { inst: 'pbass', vol: 0.3, send: 0, ev: bass }
+        { inst: 'trumpet', vol: 0.6, send: 0.25, pan: 0.1, ev: mel },
+        { inst: 'strings', vol: 0.4, send: 0.3, pan: -0.3, ev: mel },
+        { inst: 'horn', vol: 0.36, send: 0.3, pan: 0.3, ev: low },
+        { inst: 'stabs', vol: 0.26, send: 0.2, pan: -0.1, ev: comp(ch, 3, [[0, 2], [3, 2], [6, 2], [10, 2], [12, 2]], (t) => [t[0], t[2], t[0] + 12]) },
+        { inst: 'cello', vol: 0.55, send: 0.12, pan: 0.15, ev: bass }
       ],
       drums: drums(ks).concat(drums(hats)),
-      dvol: 0.62
+      dvol: 0.5
     };
   }
 
   // 승리 팡파레: 짧게 한 번만. C장조, 따따따 따—안, A♭·B♭를 지나 C로 끝난다.
   function songVictory() {
     return {
-      bpm: 132, bars: 4, once: true, fadeIn: 0.05, echo: { time: 0.23, fb: 0.25, mix: 0.25 },
+      bpm: 132, bars: 4, timp: 36, once: true, fadeIn: 0.05, echo: { time: 0.23, fb: 0.25, mix: 0.25 },
       tracks: [
-        { inst: 'brass', vol: 0.32, send: 0.35, ev: bars(['G5/1 -/1 G5/1 -/1 G5/1 -/1 C6/6 A#5/4', 'G#5/4 A#5/4 C6/4 -/1 A#5/1 C6/2', 'C6/12 -/4', '-/16']) },
-        { inst: 'brass', vol: 0.2, send: 0.35, ev: bars(['E5/1 -/1 E5/1 -/1 E5/1 -/1 G5/6 F5/4', 'D#5/4 F5/4 G5/4 -/1 F5/1 G5/2', 'E5/12 -/4', '-/16']) },
-        { inst: 'harp', vol: 0.12, send: 0.5, ev: arp(['C', 'C', 'C'], 4, [0, 1, 2, 3, 4, 5, 4, 3, 2, 1, 2, 3, 4, 5, 4, 5], 1).filter((e) => e.s >= 32) },
-        { inst: 'pbass', vol: 0.28, send: 0, ev: bars(['C3/12 C3/2 D3/2', 'G#2/4 A#2/4 C3/8', 'C3/12 -/4', '-/16']) }
+        { inst: 'trumpet', vol: 0.7, send: 0.35, pan: 0.1, ev: bars(['G5/1 -/1 G5/1 -/1 G5/1 -/1 C6/6 A#5/4', 'G#5/4 A#5/4 C6/4 -/1 A#5/1 C6/2', 'C6/12 -/4', '-/16']) },
+        { inst: 'horn', vol: 0.42, send: 0.35, pan: -0.2, ev: bars(['E5/1 -/1 E5/1 -/1 E5/1 -/1 G5/6 F5/4', 'D#5/4 F5/4 G5/4 -/1 F5/1 G5/2', 'E5/12 -/4', '-/16']) },
+        { inst: 'harp', vol: 0.3, send: 0.5, pan: -0.35, ev: arp(['C', 'C', 'C'], 4, [0, 1, 2, 3, 4, 5, 4, 3, 2, 1, 2, 3, 4, 5, 4, 5], 1).filter((e) => e.s >= 32) },
+        { inst: 'trombone', vol: 0.4, send: 0.3, pan: 0.25, ev: bars(['C3/12 C3/2 D3/2', 'G#2/4 A#2/4 C3/8', 'C3/12 -/4', '-/16']) }
       ],
       drums: drums(['k.s.s.c.........', 'k...k...k.s.ssss', 'c...............', '................']),
       dvol: 0.55
@@ -249,6 +254,8 @@
   const SCENES = { town: 'town', field: 'field', b1: 'dungeon1', b2: 'dungeon2', crypt: 'crypt' };
   const cache = {};
   const song = (name) => cache[name] || (cache[name] = SONGS[name]());
+  // 곡에 필요한 악기 파일 이름들 (타악기 포함)
+  const needs = (name) => [...new Set(song(name).tracks.map((tr) => INST[tr.inst] && INST[tr.inst].sf).concat(['taiko', 'timpani']).filter(Boolean))];
 
   // ---------- 악기 ----------
   const waves = new WeakMap();
@@ -270,24 +277,121 @@
     return (w.noise = b);
   }
 
+  // ---------- 실제 악기 (사운드폰트) ----------
+  // instruments/<이름>.js 가 window.SOUNDFONT[이름] = { MIDI번호: base64 mp3 } 를 넣는다. 세 반음마다 한 음씩만 있고 사이는 음높이를 옮겨 쓴다.
+  const base = (document.currentScript && document.currentScript.src || '').replace(/[^/]*$/, '');
+  const SAMPLE_GAIN = 7; // 녹음이 작게 담겨 있어 키운다
+  const SF = {}; // 이름 → { keys: [MIDI...], buf: {MIDI: AudioBuffer} }
+  const sfLoading = {};
+  function loadScript(src) {
+    return new Promise((ok, fail) => {
+      const el = document.createElement('script');
+      el.src = src; el.onload = ok; el.onerror = fail;
+      document.head.append(el);
+    });
+  }
+  function b64(s) { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; }
+  function loadInst(name, ac) {
+    if (SF[name]) return Promise.resolve(SF[name]);
+    if (sfLoading[name]) return sfLoading[name];
+    const got = window.SOUNDFONT && window.SOUNDFONT[name] ? Promise.resolve() : loadScript(base + 'instruments/' + name + '.js');
+    return (sfLoading[name] = got.then(() => {
+      const raw = window.SOUNDFONT[name], keys = Object.keys(raw).map(Number).sort((a, b) => a - b), buf = {};
+      return Promise.all(keys.map((k) => new Promise((ok) => ac.decodeAudioData(b64(raw[k]), (b) => { buf[k] = b; ok(); }, () => ok()))))
+        .then(() => { delete window.SOUNDFONT[name]; return (SF[name] = { keys: keys.filter((k) => buf[k]), buf }); });
+    }).catch(() => { delete sfLoading[name]; return null; }));
+  }
+  const loadAll = (names, ac) => Promise.all(names.map((n) => loadInst(n, ac)));
+
+  // 샘플 한 음. 녹음(약 3초)보다 긴 음은 뒷부분을 겹쳐 이어 붙여 늘인다.
+  function sampleNote(ctx, out, p, t, dur, m, vol) {
+    const sf = SF[p.sf];
+    if (!sf || !sf.keys.length) return false;
+    let k = sf.keys[0];
+    for (const x of sf.keys) if (Math.abs(x - m) < Math.abs(k - m)) k = x;
+    const buf = sf.buf[k], rate = Math.pow(2, (m - k) / 12);
+    vol *= SAMPLE_GAIN;
+    const g = ctx.createGain();
+    let tail = g;
+    if (p.lp) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = p.lp; g.connect(f); tail = f; }
+    tail.connect(out);
+    const len = buf.duration / rate; // 이 음높이에서 녹음 길이
+    if (p.perc) { // 뜯고 치는 악기: 저절로 사라지게 둔다
+      const end = t + Math.min(len, p.max || len);
+      g.gain.setValueAtTime(vol, t);
+      if (p.max) g.gain.setTargetAtTime(0, t + Math.max(dur, p.max * 0.6), 0.15);
+      const src = ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = rate;
+      src.connect(g); src.start(t); src.stop(end + 0.5);
+      return true;
+    }
+    const rel = Math.max(t + dur, t + 0.05);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + (p.a || 0.01));
+    g.gain.setTargetAtTime(0, rel, (p.r || 0.3) / 3);
+    const stop = rel + (p.r || 0.3) * 2;
+    // 녹음을 0.4초 겹치며 이어 친다 (두 번째부터는 앞의 0.8초를 건너뛴다)
+    const seg = Math.max(0.6, len - 0.9), xf = 0.4;
+    let at = t, off = 0, first = true;
+    while (at < stop) {
+      const src = ctx.createBufferSource(), sg = ctx.createGain();
+      src.buffer = buf; src.playbackRate.value = rate;
+      src.connect(sg); sg.connect(g);
+      const segLen = first ? seg : seg - 0.8 / rate;
+      if (!first) { sg.gain.setValueAtTime(0, at); sg.gain.linearRampToValueAtTime(1, at + xf); }
+      const fadeAt = at + segLen;
+      if (fadeAt < stop) { sg.gain.setValueAtTime(1, fadeAt); sg.gain.linearRampToValueAtTime(0, fadeAt + xf); }
+      src.start(at, off); src.stop(Math.min(stop, fadeAt + xf) + 0.02);
+      at = fadeAt; off = 0.8; first = false;
+    }
+    return true;
+  }
+
+  // 홀 잔향: 잡음을 지수적으로 줄여 만든 임펄스 응답
+  const irs = new WeakMap();
+  function hallIR(ctx, sec) {
+    if (irs.has(ctx)) return irs.get(ctx);
+    const sr = ctx.sampleRate, n = Math.floor(sr * sec), b = ctx.createBuffer(2, n, sr);
+    for (let c = 0; c < 2; c++) {
+      const d = b.getChannelData(c);
+      let x = 7 + c * 13;
+      for (let i = 0; i < n; i++) {
+        x = (x * 16807) % 2147483647;
+        const pre = i < sr * 0.012 ? 0 : 1;
+        d[i] = pre * ((x / 2147483647) * 2 - 1) * Math.pow(1 - i / n, 2.2) * Math.exp(-i / (sr * 0.9));
+      }
+    }
+    irs.set(ctx, b);
+    return b;
+  }
+
   // 악기 설정: wave(파형), a/d/s/r(엔벨로프), vib(떨림), lp(저역 필터), detune(겹친 음)
   const INST = {
-    pbass: { wave: 0.25, a: 0.004, d: 0.15, s: 0.6, r: 0.05, lp: 900 },
-    flute: { wave: 0.5, a: 0.04, d: 0.25, s: 0.7, r: 0.18, vib: [5.2, 6, 0.18], lp: 2600 },
-    soft: { wave: 'triangle', a: 0.02, d: 0.3, s: 0.4, r: 0.3 },
-    harp: { wave: 0.125, a: 0.003, d: 0.35, s: 0, r: 0.2, lp: 3200 },
-    bass: { wave: 'triangle', a: 0.005, d: 0.2, s: 0.75, r: 0.06 },
-    brass: { wave: 'sawtooth', a: 0.03, d: 0.2, s: 0.75, r: 0.12, vib: [5.5, 8, 0.22], lp: 2200, lpEnv: 1800, detune: 7 },
-    guitar: { wave: 0.25, a: 0.004, d: 0.12, s: 0.3, r: 0.05, lp: 1800 },
-    bell: { wave: 'sine', a: 0.003, d: 1.6, s: 0, r: 0.8, bell: true },
-    pad: { wave: 'triangle', a: 1.2, d: 0.5, s: 0.8, r: 1.4, detune: 6 },
-    drone: { wave: 'sine', a: 1.5, d: 0.5, s: 0.9, r: 1.5, lp: 400 },
-    organ: { wave: 0.5, a: 0.06, d: 0.1, s: 0.85, r: 0.25, lp: 1500, detune: 4 },
-    choir: { wave: 'triangle', a: 0.5, d: 0.4, s: 0.8, r: 0.8, vib: [4.5, 6, 0.3], detune: 9 }
+    // 실제 악기: sf(파일), vol(파일마다 소리 크기 맞춤), a/r(시작·끝), perc(저절로 사라짐), max(최대 길이), lp(저역 필터)
+    piano: { sf: 'piano', perc: true, vol: 0.9 },
+    flute: { sf: 'flute', a: 0.04, r: 0.25, vol: 0.8 },
+    harp: { sf: 'harp', perc: true, vol: 0.9 },
+    pizz: { sf: 'pizz', perc: true, vol: 1 },
+    strings: { sf: 'strings', a: 0.12, r: 0.6, vol: 0.7 },
+    stabs: { sf: 'brass', a: 0.01, r: 0.12, vol: 0.6 },
+    cello: { sf: 'cello', a: 0.02, r: 0.15, vol: 0.8 },
+    contrabass: { sf: 'contrabass', a: 0.03, r: 0.3, vol: 0.9 },
+    bassLong: { sf: 'contrabass', a: 0.8, r: 1.2, vol: 0.9, lp: 900 },
+    horn: { sf: 'horn', a: 0.05, r: 0.35, vol: 0.8 },
+    trombone: { sf: 'trombone', a: 0.04, r: 0.3, vol: 0.7 },
+    trumpet: { sf: 'trumpet', a: 0.02, r: 0.25, vol: 0.6 },
+    choir: { sf: 'choir', a: 0.3, r: 0.9, vol: 0.8 },
+    organ: { sf: 'organ', a: 0.08, r: 0.5, vol: 0.5 },
+    celesta: { sf: 'celesta', perc: true, vol: 0.9 },
+    bells: { sf: 'bells', perc: true, vol: 0.8 },
+    timpani: { sf: 'timpani', perc: true, vol: 1 },
+    taiko: { sf: 'taiko', perc: true, vol: 1 },
+    // 악기 파일을 못 불러왔을 때 대신 쓰는 합성음
+    soft: { wave: 'triangle', a: 0.02, d: 0.3, s: 0.4, r: 0.3 }
   };
 
   function voice(ctx, out, inst, t, dur, m, vol) {
-    const p = INST[inst];
+    let p = INST[inst];
+    if (p.sf) { if (sampleNote(ctx, out, p, t, dur, m, vol * (p.vol || 1))) return; p = INST.soft; vol *= 0.4; }
     const g = ctx.createGain();
     let tail = g;
     if (p.lp) {
@@ -336,7 +440,12 @@
     oscs.forEach((o) => { o.start(t); o.stop(stop); });
   }
 
-  function drum(ctx, out, kind, t, vol) {
+  function drum(ctx, out, kind, t, vol, timp) {
+    // 큰북(k)·탐(r)은 타이코, 팀파니(t)는 곡의 으뜸음으로 진짜 녹음을 쓴다
+    if (kind === 'k' && sampleNote(ctx, out, INST.taiko, t, 0.4, 36, vol * 1.6)) return;
+    if (kind === 'r' && sampleNote(ctx, out, INST.taiko, t, 0.3, 45, vol * 1.2)) return;
+    if (kind === 't' && sampleNote(ctx, out, INST.timpani, t, 1, timp || 36, vol * 1.5)) return;
+    if (kind === 'h') vol *= 0.5; // 하이햇은 셰이커처럼 작게
     const g = ctx.createGain();
     g.connect(out);
     if (kind === 'r') { // 탐: 짧게 내려가는 음
@@ -362,7 +471,7 @@
     const f = ctx.createBiquadFilter();
     const set = {
       s: ['bandpass', 1800, 0.8, 0.07, 0.5], h: ['highpass', 7000, 1, 0.018, 0.18], o: ['highpass', 6500, 1, 0.09, 0.18],
-      c: ['highpass', 5000, 0.7, 0.35, 0.3], t: ['lowpass', 300, 1, 0.12, 0.25]
+      c: ['highpass', 4000, 0.6, 0.9, 0.35], t: ['lowpass', 300, 1, 0.12, 0.25]
     }[kind];
     if (!set) return;
     f.type = set[0]; f.frequency.value = set[1]; f.Q.value = set[2];
@@ -383,15 +492,18 @@
   // 곡 하나를 버스로 만든다: 트랙 → (곡 음량) → 마스터, 일부는 메아리(딜레이)로
   function makeBus(ctx, master, sg) {
     const bus = ctx.createGain(), dry = ctx.createGain(), wet = ctx.createGain();
-    const dl = ctx.createDelay(1.5), fb = ctx.createGain(), lp = ctx.createBiquadFilter();
-    dl.delayTime.value = sg.echo.time; fb.gain.value = sg.echo.fb; lp.type = 'lowpass'; lp.frequency.value = 2400;
-    wet.connect(dl); dl.connect(lp); lp.connect(fb); fb.connect(dl);
-    const wetOut = ctx.createGain(); wetOut.gain.value = sg.echo.mix;
+    // 홀 잔향 (곡의 echo.time 이 길수록 넓은 공간)
+    const rv = ctx.createConvolver(), lp = ctx.createBiquadFilter();
+    rv.buffer = hallIR(ctx, 2.8); lp.type = 'lowpass'; lp.frequency.value = 5000;
+    wet.connect(rv); rv.connect(lp);
+    const wetOut = ctx.createGain(); wetOut.gain.value = 0.35 + sg.echo.mix;
     lp.connect(wetOut); wetOut.connect(bus); dry.connect(bus); bus.connect(master);
     const trackOuts = sg.tracks.map((tr) => {
       const g = ctx.createGain(), s = ctx.createGain();
       g.gain.value = 1; s.gain.value = tr.send || 0;
-      g.connect(dry); g.connect(s); s.connect(wet);
+      let o = g;
+      if (tr.pan && ctx.createStereoPanner) { const pn = ctx.createStereoPanner(); pn.pan.value = tr.pan; g.connect(pn); o = pn; }
+      o.connect(dry); o.connect(s); s.connect(wet);
       return g;
     });
     const drumOut = ctx.createGain(); drumOut.gain.value = sg.dvol || 0.4; drumOut.connect(dry);
@@ -408,7 +520,7 @@
         for (const m of e.m) voice(ctx, mix.trackOuts[i], tr.inst, t, e.l * stepDur * 0.95, m, tr.vol / Math.sqrt(e.m.length));
       }
     });
-    for (const d of sg.drums) if (d.s >= a && d.s < b) drum(ctx, mix.drumOut, d.d, t0 + (d.s - a) * stepDur, 0.5);
+    for (const d of sg.drums) if (d.s >= a && d.s < b) drum(ctx, mix.drumOut, d.d, t0 + (d.s - a) * stepDur, 0.5, sg.timp);
   }
 
   // ---------- 재생 ----------
@@ -437,6 +549,13 @@
 
   function start(name) {
     if (!ctx || ctx.state !== 'running') return;
+    const miss = needs(name).filter((n) => !SF[n]);
+    if (miss.length) { // 악기 파일을 다 받은 뒤에 시작한다 (그 사이 다른 곡으로 바뀌면 그만둔다)
+      cur = { name, mix: null, loading: true };
+      const mine = cur;
+      loadAll(miss, ctx).then(() => { if (cur === mine) { cur = null; start(name); preloadRest(); } });
+      return;
+    }
     const sg = song(name);
     const mix = makeBus(ctx, master, sg);
     const stepDur = 60 / sg.bpm / 4, total = sg.bars * 16;
@@ -454,8 +573,16 @@
     }, 40);
     cur = p;
   }
+  // 지금 곡이 시작되면 나머지 곡의 악기도 하나씩 미리 받아 둔다
+  let preloaded = false;
+  function preloadRest() {
+    if (preloaded) return;
+    preloaded = true;
+    const all = [...new Set(Object.keys(SONGS).flatMap(needs))];
+    all.reduce((pr, n) => pr.then(() => loadInst(n, ctx)), Promise.resolve());
+  }
   function fadeOut(p, sec) {
-    if (!p) return;
+    if (!p || !p.mix) return;
     clearInterval(p.timer);
     const t = ctx.currentTime;
     p.mix.bus.gain.cancelScheduledValues(t);
@@ -563,14 +690,91 @@
   if (document.body) addButton(); else document.addEventListener('DOMContentLoaded', addButton);
 
   // 미리 듣기·점검용: 곡 한 바퀴를 오프라인으로 그려 AudioBuffer로 돌려준다
-  function render(name, sampleRate) {
-    const sg = song(name), stepDur = 60 / sg.bpm / 4, total = sg.bars * 16;
+  async function render(name, sampleRate, solo) {
+    let sg = song(name);
+    if (solo != null) sg = { ...sg, tracks: sg.tracks.filter((t, i) => i === solo), drums: solo < 0 ? sg.drums : [] }; // 점검용: 트랙 하나만
+    const stepDur = 60 / sg.bpm / 4, total = sg.bars * 16;
     const sr = sampleRate || 44100;
-    const off = new OfflineAudioContext(2, Math.ceil((total * stepDur + 2) * sr), sr);
+    const off = new OfflineAudioContext(2, Math.ceil((total * stepDur + 3) * sr), sr);
+    await loadAll(needs(name), off);
     const c = off.createDynamicsCompressor(); c.threshold.value = -14; c.ratio.value = 3;
     const m = off.createGain(); m.gain.value = 0.7; m.connect(c); c.connect(off.destination);
     scheduleSteps(off, sg, makeBus(off, m, sg), 0, total, 0.05, stepDur);
     return off.startRendering();
+  }
+
+  // ---------- 효과음 ----------
+  // 전투 소리도 같은 방식으로 합성한다. 배경음악과 같은 음량·끄기 설정을 따른다.
+  function tone(c, out, type, f0, f1, t, len, vol, curve) {
+    const o = c.createOscillator(), g = c.createGain();
+    if (typeof type === 'number') o.setPeriodicWave(pulseWave(c, type)); else o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + len * (curve || 1));
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + len);
+    o.connect(g); g.connect(out); o.start(t); o.stop(t + len + 0.02);
+  }
+  function hiss(c, out, type, f0, f1, t, len, vol, q) {
+    const n = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    n.buffer = noiseBuf(c);
+    f.type = type; f.Q.value = q || 1;
+    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + len);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0008, t + len);
+    n.connect(f); f.connect(g); g.connect(out); n.start(t, Math.random() * 0.5); n.stop(t + len + 0.02);
+  }
+  const SFX = {
+    // 아군 공격: 칼이 바람을 가르고 '퍽' 맞는다
+    slash: (c, o, t) => { hiss(c, o, 'bandpass', 5000, 900, t, 0.13, 0.9, 2); tone(c, o, 'square', 220, 70, t + 0.08, 0.14, 0.35); hiss(c, o, 'lowpass', 1800, 200, t + 0.08, 0.12, 0.6); },
+    // 급소: 더 세게, 끝에 높은 울림
+    crit: (c, o, t) => { SFX.slash(c, o, t); tone(c, o, 'square', 1760, 1760, t + 0.1, 0.25, 0.12); tone(c, o, 'sawtooth', 160, 45, t + 0.08, 0.25, 0.35); },
+    // 헛침·피함: 휙
+    miss: (c, o, t) => hiss(c, o, 'bandpass', 2500, 6000, t, 0.18, 0.5, 3),
+    dodge: (c, o, t) => hiss(c, o, 'bandpass', 4500, 1500, t, 0.2, 0.5, 3),
+    // 방어: 방패의 '챙' 하는 쇳소리
+    guard: (c, o, t) => { tone(c, o, 0.25, 1320, 1250, t, 0.35, 0.16); tone(c, o, 'square', 1975, 1900, t, 0.22, 0.07); hiss(c, o, 'highpass', 6000, 4000, t, 0.06, 0.5); },
+    // 적의 공격: 낮고 묵직한 타격과 '으직'
+    hit: (c, o, t) => { tone(c, o, 'sine', 140, 40, t, 0.25, 0.9); tone(c, o, 'square', 300, 60, t, 0.12, 0.3, 0.5); hiss(c, o, 'lowpass', 2500, 300, t, 0.18, 0.8); },
+    // 방어한 채로 맞음: 쇳소리 + 약한 타격
+    block: (c, o, t) => { SFX.guard(c, o, t); tone(c, o, 'sine', 120, 50, t, 0.15, 0.5); },
+    // 공격 주문(불꽃): 올라가는 마력 소리 뒤에 '화르륵'
+    fire: (c, o, t) => {
+      [0, 4, 7, 12, 16].forEach((d, i) => tone(c, o, 0.125, hz(72 + d), hz(72 + d), t + i * 0.04, 0.12, 0.12));
+      hiss(c, o, 'lowpass', 300, 3000, t + 0.18, 0.25, 0.7); hiss(c, o, 'lowpass', 3000, 200, t + 0.43, 0.5, 0.8);
+      tone(c, o, 'sawtooth', 90, 40, t + 0.2, 0.6, 0.35);
+    },
+    // 회복 주문: 반짝이며 올라가는 맑은 소리
+    heal: (c, o, t) => {
+      [0, 4, 7, 12, 16, 19, 24].forEach((d, i) => { tone(c, o, 'triangle', hz(79 + d), hz(79 + d), t + i * 0.06, 0.5, 0.2); tone(c, o, 'sine', hz(91 + d), hz(91 + d), t + i * 0.06 + 0.03, 0.3, 0.06); });
+      hiss(c, o, 'highpass', 8000, 9000, t, 0.6, 0.08);
+    },
+    // 발소리: 지상은 흙·풀 밟는 '척', 던전은 돌바닥 '탁' (번갈아 높낮이를 바꾼다)
+    step: (c, o, t) => { const v = (stepAlt = !stepAlt) ? 1 : 0.85; hiss(c, o, 'bandpass', 1100 * v, 350, t, 0.08, 0.55, 1.5); tone(c, o, 'sine', 130 * v, 70, t, 0.06, 0.25); },
+    stepStone: (c, o, t) => {
+      const v = (stepAlt = !stepAlt) ? 1 : 0.88;
+      hiss(c, o, 'bandpass', 2400 * v, 900, t, 0.05, 0.6, 2); tone(c, o, 'sine', 190 * v, 90, t, 0.07, 0.3);
+      hiss(c, o, 'bandpass', 1800 * v, 700, t + 0.11, 0.05, 0.12, 2); // 돌방의 메아리
+    },
+    bump: (c, o, t) => { tone(c, o, 'sine', 110, 45, t, 0.25, 0.8); hiss(c, o, 'lowpass', 900, 120, t, 0.2, 0.6); },
+    // 장소를 옮길 때
+    enterTown: (c, o, t) => { [60, 64, 67, 72, 76, 79, 84, 88].forEach((m, i) => note(c, o, 'harp', t + i * 0.055, 0.6, m, 0.9)); },
+    leaveTown: (c, o, t) => { [84, 79, 76, 72, 67, 64, 60, 55].forEach((m, i) => note(c, o, 'harp', t + i * 0.055, 0.6, m, 0.8)); hiss(c, o, 'bandpass', 3000, 600, t, 0.6, 0.25, 1); },
+    enterDungeon: (c, o, t) => {
+      [0, 0.16, 0.29, 0.39, 0.47, 0.54, 0.6].forEach((d, i) => note(c, o, 'timpani', t + d, 0.4, 36, 0.5 + i * 0.08));
+      note(c, o, 'taiko', t + 0.75, 0.5, 33, 1.3); hiss(c, o, 'lowpass', 400, 80, t + 0.75, 1.2, 0.9); // 육중한 문이 닫힌다
+      note(c, o, 'choir', t + 0.75, 1.6, 45, 0.5); note(c, o, 'choir', t + 0.75, 1.6, 52, 0.4);
+    },
+    leaveDungeon: (c, o, t) => { hiss(c, o, 'bandpass', 400, 4000, t, 0.7, 0.4, 0.8); [57, 60, 64, 69, 72].forEach((m, i) => note(c, o, 'harp', t + 0.2 + i * 0.07, 0.6, m, 0.8)); note(c, o, 'strings', t + 0.3, 1.2, 76, 0.4); },
+    stairs: (c, o, t) => { for (let i = 0; i < 6; i++) SFX.stepStone(c, o, t + i * 0.2); note(c, o, 'timpani', t + 1.25, 0.6, 33, 0.7); },
+    // 적이 쓰러짐
+    down: (c, o, t) => { tone(c, o, 0.5, 440, 60, t, 0.35, 0.15); hiss(c, o, 'lowpass', 1200, 100, t, 0.35, 0.4); }
+  };
+  let sfxBus = null, stepAlt = false;
+  // 효과음 안에서 진짜 악기 한 음 (악기 파일이 아직 없으면 조용히 넘어간다)
+  function note(c, o, inst, t, dur, m, vol) { sampleNote(c, o, INST[inst], t, dur, m, 0.12 * vol); }
+  function sfx(name) {
+    if (!SFX[name] || !ensure() || ctx.state !== 'running') return;
+    if (!sfxBus) { sfxBus = ctx.createGain(); sfxBus.gain.value = 0.55; sfxBus.connect(master); }
+    SFX[name](ctx, sfxBus, ctx.currentTime + 0.01);
   }
 
   window.BGM = {
@@ -590,6 +794,7 @@
     get muted() { return muted; },
     get current() { return cur ? cur.name : null; },
     songs: Object.keys(SONGS),
+    sfx, // 효과음: slash crit miss guard hit block dodge fire heal down step stepStone bump enterTown leaveTown enterDungeon leaveDungeon stairs
     render
   };
 })();
