@@ -36,6 +36,9 @@
 //   monsters       적. count:[최소,최대] 무리 수, magic:true 면 방어력 무시, boss:true 면 도망 불가
 //                  sprite 이름으로 monsters/<sprite>.png 그림을 찾고, 없으면 기본 그림을 그린다
 //                  tint: 0xRRGGBB 면 같은 그림을 그 빛깔로 물들여 다른 몬스터처럼 쓴다
+//                  acts: n 한 라운드에 n 번 움직임 (보스) / breath: { name, chance, power:[최소,최대] }
+//                  그 확률로 파티 전원에게 방어력을 무시하는 숨결 공격
+//   spells         power 는 Lv1 기준. 레벨이 하나 오를 때마다 1씩 세진다
 //   floors.*.encounters  { rate: 걸음마다 조우 확률, table: [몬스터 id...] }
 //   floors.*.tint / fog  벽·바닥·천장 빛깔과 안개 빛깔 (0xRRGGBB, 없으면 기본 잿빛 수도원)
 //   floors.*.music / areas.*.music  배경음악 장면 이름 (없으면 층·지역 이름. music.js 의 SCENES)
@@ -61,24 +64,32 @@ window.DUNGEON = {
   },
 
   monsters: {
-    rat:      { name: '거대 쥐',     sprite: 'rat',      hp: 6,  atk: 4,  def: 0, exp: 4,  gold: 2,  count: [2, 4] },
-    skeleton: { name: '해골 병사',   sprite: 'skeleton', hp: 14, atk: 6,  def: 2, exp: 10, gold: 6,  count: [1, 3] },
-    wisp:     { name: '도깨비불',    sprite: 'wisp',     hp: 9,  atk: 5,  def: 1, exp: 8,  gold: 4,  count: [1, 2], magic: true },
-    guardian: { name: '봉인의 수호자', sprite: 'guardian', hp: 150, atk: 14, def: 5, exp: 200, gold: 100, count: [1, 1], boss: true },
-    slime:    { name: '풀빛 슬라임', sprite: 'slime',    hp: 5,  atk: 3,  def: 0, exp: 3,  gold: 3,  count: [1, 3] },
-    // 옛 광산 (그림은 같은 것을 쓰고 tint 로 빛깔만 바꾼다)
-    cave_rat: { name: '굴 쥐',       sprite: 'rat',      hp: 8,  atk: 5,  def: 1, exp: 6,  gold: 4,  count: [2, 4], tint: 0xc8a070 },
-    miner:    { name: '광부의 망령', sprite: 'skeleton', hp: 16, atk: 7,  def: 2, exp: 13, gold: 9,  count: [1, 3], tint: 0xb8c8e8 },
-    ore_wisp: { name: '광석 정령',   sprite: 'wisp',     hp: 11, atk: 6,  def: 1, exp: 10, gold: 8,  count: [1, 2], magic: true, tint: 0xffc860 },
-    golem:    { name: '돌 골렘',     sprite: 'guardian', hp: 70, atk: 10, def: 4, exp: 100, gold: 60, count: [1, 1], boss: true, tint: 0x9a8a68 },
-    // 수도사 묘지
-    ghoul:      { name: '구울',         sprite: 'skeleton', hp: 20, atk: 8,  def: 2, exp: 15, gold: 10, count: [1, 3], tint: 0x8fbf7a },
-    grave_rat:  { name: '묘지 쥐',      sprite: 'rat',      hp: 10, atk: 6,  def: 1, exp: 8,  gold: 5,  count: [2, 4], tint: 0x8a7aa8 },
-    shade:      { name: '원혼',         sprite: 'wisp',     hp: 14, atk: 7,  def: 1, exp: 13, gold: 9,  count: [1, 2], magic: true, tint: 0xb080ff },
-    gravekeeper: { name: '타락한 묘지기', sprite: 'guardian', hp: 85, atk: 11, def: 4, exp: 130, gold: 80, count: [1, 1], boss: true, tint: 0x6a9a7a },
-    // 수도원 깊은 층
-    bone_knight: { name: '뼈 기사',     sprite: 'skeleton', hp: 26, atk: 10, def: 3, exp: 20, gold: 14, count: [1, 2], tint: 0xe0c890 },
-    soul_flame:  { name: '혼불',        sprite: 'wisp',     hp: 16, atk: 9,  def: 1, exp: 16, gold: 10, count: [1, 3], magic: true, tint: 0x60d8ff }
+    // 들판 (Lv 1~3)
+    slime:       { name: '풀빛 슬라임', sprite: 'slime',       hp: 5,   atk: 3,  def: 0, exp: 3,   gold: 3,   count: [1, 3] },
+    horn_rabbit: { name: '뿔토끼',      sprite: 'horn_rabbit', hp: 7,   atk: 4,  def: 0, exp: 4,   gold: 3,   count: [1, 3] },
+    rat:         { name: '거대 쥐',     sprite: 'rat',         hp: 6,   atk: 4,  def: 0, exp: 4,   gold: 2,   count: [2, 3] },
+    wolf:        { name: '들늑대',      sprite: 'wolf',        hp: 13,  atk: 6,  def: 1, exp: 8,   gold: 5,   count: [1, 2] },
+    // 옛 광산 (Lv 3~6)
+    cave_bat:    { name: '동굴 박쥐',   sprite: 'cave_bat',    hp: 9,   atk: 6,  def: 0, exp: 5,   gold: 4,   count: [2, 4] },
+    cave_rat:    { name: '굴 쥐',       sprite: 'rat',         hp: 11,  atk: 6,  def: 1, exp: 5,   gold: 4,   count: [2, 3], tint: 0xc8a070 },
+    rock_golem:  { name: '자갈 골렘',   sprite: 'rock_golem',  hp: 22,  atk: 8,  def: 5, exp: 11,  gold: 10,  count: [1, 2] },
+    miner:       { name: '광부의 망령', sprite: 'miner',       hp: 17,  atk: 8,  def: 2, exp: 10,  gold: 9,   count: [1, 3] },
+    ore_wisp:    { name: '광석 정령',   sprite: 'wisp',        hp: 14,  atk: 7,  def: 1, exp: 9,  gold: 9,   count: [1, 2], magic: true, tint: 0xffc860 },
+    golem:       { name: '돌 골렘',     sprite: 'golem',       hp: 120, atk: 12, def: 6, exp: 120, gold: 80,  count: [1, 1], boss: true, acts: 2 },
+    // 수도사 묘지 (Lv 6~9)
+    grave_crow:  { name: '묘지 까마귀', sprite: 'grave_crow',  hp: 15,  atk: 10, def: 1, exp: 8,  gold: 6,   count: [2, 4] },
+    skeleton:    { name: '해골 병사',   sprite: 'skeleton',    hp: 24,  atk: 11, def: 4, exp: 12,  gold: 10,  count: [1, 3] },
+    ghoul:       { name: '구울',        sprite: 'ghoul',       hp: 34,  atk: 12, def: 3, exp: 15,  gold: 12,  count: [1, 2] },
+    shade:       { name: '원혼',        sprite: 'wisp',        hp: 22,  atk: 10, def: 1, exp: 13,  gold: 12,  count: [1, 2], magic: true, tint: 0xb080ff },
+    bone_knight: { name: '뼈 기사',     sprite: 'bone_knight', hp: 40,  atk: 13, def: 6, exp: 20,  gold: 16,  count: [1, 2] },
+    gravekeeper: { name: '타락한 묘지기', sprite: 'gravekeeper', hp: 270, atk: 16, def: 6, exp: 180, gold: 120, count: [1, 1], boss: true, acts: 2 },
+    // 잿빛 수도원 (Lv 9~14, 가장 강하다)
+    fallen_monk: { name: '타락한 수도사', sprite: 'fallen_monk', hp: 36, atk: 15, def: 4, exp: 18,  gold: 16,  count: [1, 3], magic: true },
+    gargoyle:    { name: '가고일',      sprite: 'gargoyle',    hp: 48,  atk: 16, def: 9, exp: 22,  gold: 20,  count: [1, 2] },
+    soul_flame:  { name: '혼불',        sprite: 'wisp',        hp: 30,  atk: 14, def: 2, exp: 16,  gold: 14,  count: [1, 3], magic: true, tint: 0x60d8ff },
+    living_armor: { name: '저주받은 갑옷', sprite: 'guardian', hp: 62,  atk: 18, def: 10, exp: 28, gold: 26,  count: [1, 2] },
+    dragon:      { name: '잿빛 용',     sprite: 'dragon',      hp: 380, atk: 20, def: 9, exp: 800, gold: 400, count: [1, 1], boss: true, acts: 2,
+                   breath: { name: '잿빛 숨결', chance: 0.3, power: [12, 18] } }
   },
   // 새 게임은 마을에서 시작한다. dungeon 은 수도원에 처음 들어갔을 때 서는 곳
   start: { area: 'town', x: 8, y: 12, dir: 1, gold: 30 },
@@ -150,7 +161,7 @@ window.DUNGEON = {
         'FFFFFFFF.D.,.....~~...,t.....,......,...TTTFFFFF',
         'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'
       ],
-      encounters: { rate: 0.06, forest: 1.8, path: 0.4, table: ['slime', 'slime', 'slime', 'rat'] },
+      encounters: { rate: 0.06, forest: 1.8, path: 0.4, table: ['slime', 'slime', 'horn_rabbit', 'horn_rabbit', 'rat', 'wolf'] },
       events: {
         V: { name: '숲속 마을 로엘', trigger: 'step', icon: 'town', go: { area: 'town', x: 1, y: 12, dir: 1 } },
         s: { name: '갈림길 안내판', trigger: 'step', solid: true, icon: 'sign', start: 'start', pages: { start: { title: '갈림길 안내판', text: '← 숲속 마을 로엘\n↑ 잿빛 수도원 (북쪽 산길, 정문이 잠김)\n→ 옛 광산 (동쪽 끝, 지금은 문을 닫음)\n↓ 별빛 사당 (호숫가)\n↙ 수도사 묘지 (남서쪽 숲 깊은 곳)' } } },
@@ -299,7 +310,7 @@ window.DUNGEON = {
         '5': { name: '대장간', trigger: 'step', door: true, ground: 'W', go: { area: 'smithy', x: 5, y: 6, dir: 0 } },
         '6': { name: '농부의 집', trigger: 'step', door: true, ground: 'W', go: { area: 'home', x: 4, y: 6, dir: 0 } },
         s: { name: '안내판', trigger: 'step', solid: true, icon: 'sign', start: 'start', pages: { start: { title: '안내판', text: '숲속 마을 로엘\n북쪽: 작은 성당 · 북서쪽: 장로의 집 · 북동쪽: 여관 "졸린 부엉이"\n남쪽: 약초 할머니의 집 · 대장간 · 농부의 집' } } },
-        g: { name: '문지기', trigger: 'step', solid: true, npc: 'guard', ground: '.', face: 1, start: 'start', pages: { start: { title: '문지기', text: '"마을 밖 풀숲에는 슬라임이 자주 나온다. 숲 깊은 곳일수록 더 자주 마주치니 길을 따라가는 게 좋아."' } } },
+        g: { name: '문지기', trigger: 'step', solid: true, npc: 'guard', ground: '.', face: 1, start: 'start', pages: { start: { title: '문지기', text: '"마을 밖 풀숲에는 슬라임과 뿔토끼가 자주 나온다. 숲 깊은 곳에는 들늑대도 어슬렁거리니 길을 따라가는 게 좋아."' } } },
         c: { name: '아이', trigger: 'step', solid: true, npc: 'child', ground: '.', wander: 2, start: 'start', pages: { start: { title: '아이', text: '"수도원 우물에 손을 넣으면 뭔가가 문대! 그리고 남서쪽 숲 묘지에는 밤마다 푸른 불이 떠다닌대."' } } },
         d: { name: '꼬마', trigger: 'step', solid: true, npc: 'child', ground: '.', wander: 2, start: 'start', pages: { start: { title: '꼬마', text: '"농부 아저씨네 집 구석에 상자가 있는데, 아저씨는 맨날 잊어버려!"' } } },
         m: { name: '나그네', trigger: 'step', solid: true, npc: 'traveler', ground: 'p', wander: 1, start: 'start', pages: { start: { title: '나그네', text: '"동쪽 다리를 건너면 북쪽 산으로 길이 이어지지. 수도원 앞에서 다쳤다면 무리하지 말고 돌아와 여관에서 쉬게."' } } },
@@ -334,7 +345,7 @@ window.DUNGEON = {
               effects: [{ flag: 'quest' }, { gold: 30 }]
             },
             again: { title: '장로 하르벤', text: '"열쇠는 남서쪽 숲의 수도사 묘지에, 사슬을 끊을 별빛 광석은 동쪽 옛 광산에 있을 걸세. 수도사들은 침묵을 맹세했다고 들었네. 그 안에서 무엇을 보든 서두르지 말게."' },
-            open: { title: '장로 하르벤', text: '"정문을 열었다니! 수도원은 다섯 층 아래까지 이어져 있다더군. 가장 깊은 곳의 제단을 조심하게."' }
+            open: { title: '장로 하르벤', text: '"정문을 열었다니! 수도원은 다섯 층 아래까지 이어져 있다더군. 가장 깊은 곳의 제단을 조심하게. 옛 노래로는 그 밑에 잿빛 용이 잠들어 있다더군."' }
           }
         }
       }
@@ -463,7 +474,7 @@ window.DUNGEON = {
           name: '대장장이', trigger: 'step', solid: true, npc: 'smith', ground: '_',
           start: [{ when: { flag: 'forged' }, page: 'after' }, { when: { has: 'starlight_ore' }, page: 'ore' }, { page: 'start' }],
           pages: {
-            start: { title: '대장장이', text: '"탐험대 대장의 검도 내가 벼렸지. 해골 병사는 마법에 약하다네.\n수도원 정문의 검은 사슬? 그건 별빛 광석으로 벼린 검이 아니면 못 끊어. 동쪽 옛 광산에서 광석을 캐 오게. 돌 골렘이 지키고 있다지만."' },
+            start: { title: '대장장이', text: '"탐험대 대장의 검도 내가 벼렸지. 골렘은 돌덩이라 칼보다 마법이 잘 듣는다네.\n수도원 정문의 검은 사슬? 그건 별빛 광석으로 벼린 검이 아니면 못 끊어. 동쪽 옛 광산에서 광석을 캐 오게. 돌 골렘이 지키고 있다지만."' },
             ore: {
               title: '대장장이',
               text: '"이, 이건 별빛 광석이 아닌가! 이 정도면 로엔의 검을 제대로 벼릴 수 있겠어."',
@@ -524,7 +535,7 @@ window.DUNGEON = {
         '#.###.#.###.##>#',
         '################'
       ],
-      encounters: { rate: 0.09, table: ['rat', 'rat', 'skeleton', 'wisp'] },
+      encounters: { rate: 0.09, table: ['fallen_monk', 'soul_flame', 'fallen_monk', 'gargoyle'] },
       locks: {
         '=': { item: 'rusty_key', locked: '굳게 잠긴 문이다. 열쇠 구멍이 녹슬어 있다.', open: '녹슨 열쇠로 문을 열었다.' }
       },
@@ -706,7 +717,7 @@ window.DUNGEON = {
         '#.#####.##>#',
         '############'
       ],
-      encounters: { rate: 0.1, table: ['skeleton', 'wisp', 'bone_knight', 'rat'] },
+      encounters: { rate: 0.1, table: ['fallen_monk', 'gargoyle', 'soul_flame', 'living_armor'] },
       locks: {},
       events: {
         '<': {
@@ -790,7 +801,7 @@ window.DUNGEON = {
         '#.#####.##f#>#',
         '##############'
       ],
-      encounters: { rate: 0.1, table: ['bone_knight', 'wisp', 'skeleton', 'soul_flame'] },
+      encounters: { rate: 0.1, table: ['gargoyle', 'living_armor', 'fallen_monk', 'soul_flame'] },
       locks: {
         '=': { item: 'silver_key', locked: '책장 사이를 은빛 철창이 가로막고 있다. 작은 열쇠 구멍이 있다.', open: '은 열쇠로 철창을 열었다.' }
       },
@@ -884,7 +895,7 @@ window.DUNGEON = {
         '#.#####.##>#',
         '############'
       ],
-      encounters: { rate: 0.11, table: ['bone_knight', 'soul_flame', 'soul_flame', 'skeleton'] },
+      encounters: { rate: 0.11, table: ['living_armor', 'soul_flame', 'gargoyle', 'fallen_monk'] },
       locks: {},
       events: {
         '<': {
@@ -965,17 +976,17 @@ window.DUNGEON = {
         '#......#',
         '########'
       ],
-      encounters: { rate: 0.1, table: ['bone_knight', 'soul_flame', 'bone_knight'] },
+      encounters: { rate: 0.1, table: ['living_armor', 'gargoyle', 'soul_flame'] },
       locks: {},
       events: {
         g: {
-          name: '봉인의 수호자', trigger: 'step', once: true,
+          name: '잿빛 용', trigger: 'step', once: true,
           start: 'start',
           pages: {
             start: {
-              title: '봉인의 수호자',
-              text: '제단으로 가는 문 앞에서 거대한 갑옷이 몸을 일으킨다. 투구 틈에서 붉은 빛이 번뜩인다.\n"서약을 모르는 자는 지나갈 수 없다."',
-              choices: [{ label: '맞서 싸운다', effects: [{ battle: 'guardian' }] }]
+              title: '잿빛 용',
+              text: '제단으로 가는 문 앞에 쌓인 잿더미가 꿈틀거린다. 재를 털고 거대한 날개가 펼쳐진다. 수도원 아래 잠들어 있던 잿빛 용이 금빛 눈을 뜬다.\n"…시끄럽구나. 서약을 모르는 자는 제단에 닿을 수 없다."',
+              choices: [{ label: '맞서 싸운다', effects: [{ battle: 'dragon' }] }]
             }
           }
         },
@@ -1016,7 +1027,7 @@ window.DUNGEON = {
             },
             win: {
               title: '봉인이 풀리다',
-              text: '제단이 소리 없이 갈라지고, 그 아래 석실에 탐험대원들이 잠들어 있다.\n그들은 살아 있었다. 침묵의 서약 속에 갇힌 채로.',
+              text: '용이 쓰러지자, 수도원에 다시 완전한 고요가 내려앉는다.\n제단이 소리 없이 갈라지고, 그 아래 석실에 탐험대원들이 잠들어 있다.\n그들은 살아 있었다. 침묵의 서약 속에 갇힌 채로.',
               effects: [{ end: 'win' }]
             }
           }
@@ -1042,7 +1053,7 @@ window.DUNGEON = {
         '#.####.###.#>#',
         '##############'
       ],
-      encounters: { rate: 0.1, table: ['grave_rat', 'grave_rat', 'ghoul', 'shade'] },
+      encounters: { rate: 0.1, table: ['grave_crow', 'grave_crow', 'skeleton', 'ghoul', 'shade'] },
       locks: {
         '=': { item: 'bone_key', locked: '해골 문양이 새겨진 철문이 잠겨 있다.', open: '뼈 열쇠를 꽂자 철문이 삐걱이며 열렸다.' }
       },
@@ -1069,7 +1080,7 @@ window.DUNGEON = {
           pages: {
             start: {
               title: '열린 관',
-              text: '뚜껑이 부서진 관 속에 누운 유골이 뼈로 깎은 열쇠를 쥐고 있다.\n관 옆면에 글씨가 있다. "문지기 형제는 가장 깊은 곳에서 아직도 문을 지킨다."',
+              text: '뚜껑이 부서진 관 속에 누운 유골이 뼈로 깎은 열쇠를 쥐고 있다.\n관 옆면에 글씨가 있다. "수도원 가장 깊은 곳에 잿빛 용이 잠들어 있다. 우리의 침묵이 그 잠을 지켜 왔다."',
               choices: [{ label: '열쇠를 챙긴다', effects: [{ give: 'bone_key' }, { done: true }] }]
             }
           }
@@ -1135,7 +1146,7 @@ window.DUNGEON = {
         '#....k...#',
         '##########'
       ],
-      encounters: { rate: 0.11, table: ['ghoul', 'shade', 'grave_rat'] },
+      encounters: { rate: 0.11, table: ['ghoul', 'shade', 'skeleton', 'bone_knight'] },
       locks: {},
       events: {
         '<': {
@@ -1216,7 +1227,7 @@ window.DUNGEON = {
         '#.##...###.#>#.#',
         '################'
       ],
-      encounters: { rate: 0.1, table: ['cave_rat', 'cave_rat', 'miner', 'ore_wisp'] },
+      encounters: { rate: 0.1, table: ['cave_bat', 'cave_bat', 'cave_rat', 'miner', 'rock_golem'] },
       locks: {
         '=': { item: 'mine_key', locked: '두꺼운 나무 차단문이 쇠사슬로 묶여 있다. "광부장 외 출입 금지"', open: '광부장의 열쇠로 쇠사슬을 풀었다.' }
       },
@@ -1324,7 +1335,7 @@ window.DUNGEON = {
         '#.#...##.#',
         '##########'
       ],
-      encounters: { rate: 0.1, table: ['miner', 'ore_wisp', 'cave_rat'] },
+      encounters: { rate: 0.1, table: ['rock_golem', 'miner', 'ore_wisp', 'cave_bat'] },
       locks: {},
       events: {
         '<': {

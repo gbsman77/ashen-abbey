@@ -522,6 +522,9 @@
     box.firstChild.focus({ preventScroll: true });
   }
 
+  // 주문의 힘은 시전자 레벨만큼 커진다 (Lv1 그대로, 레벨마다 +1)
+  const spellRoll = (m, sp) => roll(sp.power[0], sp.power[1]) + (m.lv - 1);
+
   const wait = (ms) => new Promise((r) => setTimeout(r, reduceMotion ? Math.min(ms, 120) : ms));
   const liveFoes = () => S.battle.foes.map((f, i) => [f, i]).filter(([f]) => f.hp > 0);
 
@@ -547,7 +550,8 @@
     // 파티와 적이 섞여서 움직인다
     const order = [];
     S.party.forEach((m, i) => { if (m.hp > 0 && B.cmds[i]) order.push({ who: 'p', i, cmd: B.cmds[i], spd: Math.random() + 0.2 }); });
-    B.foes.forEach((f, i) => { if (f.hp > 0) order.push({ who: 'e', i, spd: Math.random() }); });
+    const acts = D.monsters[B.mid].acts || 1; // 큰 적은 한 라운드에 여러 번 움직인다
+    B.foes.forEach((f, i) => { if (f.hp > 0) for (let k = 0; k < acts; k++) order.push({ who: 'e', i, spd: Math.random() }); });
     order.sort((a, b) => b.spd - a.spd);
     S.party.forEach((m, i) => { if (B.cmds[i] && B.cmds[i].act === 'guard') guards.push(i); });
     for (const a of order) {
@@ -567,7 +571,8 @@
   }
 
   async function enemyPhase(guards) {
-    for (const [, i] of liveFoes()) {
+    const acts = D.monsters[S.battle.mid].acts || 1;
+    for (const [, i] of liveFoes()) for (let k = 0; k < acts; k++) {
       await foeAct(i, guards);
       if (await checkEnd()) return;
     }
@@ -600,7 +605,7 @@
     m.mp -= sp.mp;
     if (sp.target === 'ally') {
       const t = alive().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
-      const amt = Math.min(t.maxHp - t.hp, roll(sp.power[0], sp.power[1]));
+      const amt = Math.min(t.maxHp - t.hp, spellRoll(m, sp));
       t.hp += amt;
       flash('heal');
       blog(m.name + '의 ' + sp.name + '! ' + t.name + '의 체력이 ' + amt + ' 회복되었다.', 'good');
@@ -608,7 +613,7 @@
       flash('fire');
       const hits = liveFoes();
       let downs = 0;
-      for (const [f, i] of hits) { hitFoe(i, roll(sp.power[0], sp.power[1])); if (f.hp <= 0) downs++; }
+      for (const [f, i] of hits) { hitFoe(i, spellRoll(m, sp)); if (f.hp <= 0) downs++; }
       blog(m.name + '의 ' + sp.name + '! 불길이 적을 휩쓴다' + (downs ? ', ' + downs + '마리가 쓰러졌다.' : '.'), 'good');
     }
     updateStatus();
@@ -622,6 +627,23 @@
     S.party.forEach((m, k) => { if (m.hp > 0) for (let w = 0; w < [3, 2, 1][k] || 0; w++) pool.push(k); });
     const k = pick(pool), m = S.party[k];
     foeLunge(i);
+    const br = mon.breath; // 숨결: 파티 전원에게, 방어력 무시 (방어 자세면 절반)
+    if (br && Math.random() < br.chance) {
+      flash('fire');
+      cam.bump = { dx: 0, dz: 0, t: 0, shake: true };
+      const hurt = [];
+      S.party.forEach((p, j) => {
+        if (p.hp <= 0) return;
+        let d = roll(br.power[0], br.power[1]);
+        if (guards.includes(j)) d = Math.max(1, Math.floor(d / 2));
+        p.hp = Math.max(0, p.hp - d);
+        hurt.push(p.name + ' ' + d + (p.hp <= 0 ? '(쓰러짐)' : ''));
+      });
+      blog(mon.name + '의 ' + br.name + '! ' + hurt.join(', '), 'warn');
+      updateStatus();
+      await wait(800);
+      return;
+    }
     if (Math.random() > 0.85) { blog(mon.name + '의 공격을 ' + m.name + '이(가) 피했다.'); await wait(550); return; }
     let dmg = Math.max(1, roll(mon.atk - 1, mon.atk + 3) - (mon.magic ? 0 : m.def));
     if (guards.includes(k)) dmg = Math.max(1, Math.floor(dmg / 2));
@@ -771,17 +793,161 @@
       g.beginPath(); g.ellipse(106, 172, 9, 13, 0, 0, Math.PI * 2); g.ellipse(150, 172, 9, 13, 0, 0, Math.PI * 2); g.fill();
       g.strokeStyle = '#1a2a14'; g.lineWidth = 5; g.lineCap = 'round';
       g.beginPath(); g.arc(128, 196, 18, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
+    } else if (kind === 'horn_rabbit') {
+      g.fillStyle = '#e8dcc4';
+      g.beginPath(); g.ellipse(132, 196, 62, 46, 0, 0, Math.PI * 2); g.fill(); // 몸
+      g.beginPath(); g.ellipse(128, 138, 40, 36, 0, 0, Math.PI * 2); g.fill(); // 머리
+      g.beginPath(); g.ellipse(104, 84, 11, 36, -0.25, 0, Math.PI * 2); g.ellipse(152, 84, 11, 36, 0.25, 0, Math.PI * 2); g.fill(); // 귀
+      g.fillStyle = '#d89a9a'; g.beginPath(); g.ellipse(104, 86, 5, 26, -0.25, 0, Math.PI * 2); g.ellipse(152, 86, 5, 26, 0.25, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#c8a050'; g.beginPath(); g.moveTo(120, 112); g.lineTo(128, 62); g.lineTo(136, 112); g.fill(); // 뿔
+      g.fillStyle = '#c8b8a0'; g.beginPath(); g.ellipse(96, 236, 22, 12, 0, 0, Math.PI * 2); g.ellipse(166, 236, 22, 12, 0, 0, Math.PI * 2); g.fill();
+      eyes([[112, 136], [144, 136]], '#d02828', 5);
+    } else if (kind === 'wolf') {
+      g.fillStyle = '#5a5f66';
+      g.beginPath(); g.moveTo(40, 120); g.lineTo(20, 90); g.lineTo(30, 140); g.fill(); // 꼬리
+      g.beginPath(); g.ellipse(130, 160, 82, 44, -0.1, 0, Math.PI * 2); g.fill(); // 몸
+      g.fillRect(70, 170, 16, 78); g.fillRect(104, 176, 16, 72); g.fillRect(160, 170, 16, 78); g.fillRect(190, 164, 16, 84); // 다리
+      g.fillStyle = '#6c727a';
+      g.beginPath(); g.ellipse(196, 118, 40, 32, 0, 0, Math.PI * 2); g.fill(); // 머리
+      g.beginPath(); g.moveTo(178, 96); g.lineTo(184, 58); g.lineTo(200, 90); g.moveTo(204, 90); g.lineTo(222, 58); g.lineTo(226, 100); g.fill(); // 귀
+      g.beginPath(); g.moveTo(214, 120); g.lineTo(252, 138); g.lineTo(216, 148); g.fill(); // 주둥이
+      g.fillStyle = '#e8e0d0'; g.fillRect(228, 140, 4, 8); g.fillRect(238, 138, 4, 8);
+      eyes([[192, 112], [214, 112]], '#ffc020', 4);
+    } else if (kind === 'cave_bat') {
+      g.fillStyle = '#3a2c3c';
+      for (const s of [-1, 1]) {
+        g.beginPath(); g.moveTo(128, 120);
+        g.quadraticCurveTo(128 + s * 70, 50, 128 + s * 124, 80);
+        g.lineTo(128 + s * 104, 120); g.lineTo(128 + s * 88, 104); g.lineTo(128 + s * 70, 140); g.lineTo(128 + s * 50, 124); g.lineTo(128 + s * 30, 156); g.closePath(); g.fill();
+      }
+      g.fillStyle = '#4e3c50'; g.beginPath(); g.ellipse(128, 136, 30, 38, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.moveTo(106, 112); g.lineTo(100, 78); g.lineTo(120, 104); g.moveTo(136, 104); g.lineTo(156, 78); g.lineTo(150, 112); g.fill();
+      g.fillStyle = '#f0e8e0'; g.fillRect(118, 150, 4, 9); g.fillRect(134, 150, 4, 9);
+      eyes([[116, 126], [140, 126]], '#ff4030', 4);
+    } else if (kind === 'rock_golem' || kind === 'golem') {
+      const big = kind === 'golem';
+      const rock = (x, y, rx, ry, c) => { g.fillStyle = c; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill(); g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 3; g.stroke(); };
+      const c1 = big ? '#8a7f6a' : '#9a8c74', c2 = big ? '#6e6454' : '#7c705e';
+      rock(92, 226, 30, 26, c2); rock(164, 226, 30, 26, c2); // 다리
+      rock(128, 150, big ? 78 : 64, big ? 64 : 54, c1); // 몸통
+      rock(48, 150, big ? 32 : 26, big ? 48 : 40, c2); rock(208, 150, big ? 32 : 26, big ? 48 : 40, c2); // 팔
+      rock(44, 206, big ? 30 : 22, 24, c1); rock(212, 206, big ? 30 : 22, 24, c1); // 주먹
+      rock(128, 76, 34, 28, c1); // 머리
+      if (big) { g.fillStyle = '#9ec8ff'; g.shadowColor = '#9ec8ff'; g.shadowBlur = 12; for (const [x, y] of [[100, 140], [150, 170], [130, 120]]) { g.beginPath(); g.moveTo(x, y - 12); g.lineTo(x + 7, y); g.lineTo(x, y + 12); g.lineTo(x - 7, y); g.fill(); } g.shadowBlur = 0; }
+      eyes([[116, 76], [140, 76]], big ? '#9ec8ff' : '#ffb040', 5);
+    } else if (kind === 'miner') {
+      const ghost = g.createLinearGradient(0, 40, 0, 250);
+      ghost.addColorStop(0, 'rgba(190,210,240,0.95)'); ghost.addColorStop(1, 'rgba(120,150,200,0)');
+      g.fillStyle = ghost;
+      g.beginPath(); g.moveTo(84, 100); g.quadraticCurveTo(128, 70, 172, 100); g.lineTo(186, 200); g.quadraticCurveTo(160, 250, 128, 230); g.quadraticCurveTo(96, 250, 70, 200); g.closePath(); g.fill();
+      g.beginPath(); g.arc(128, 74, 30, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#c89a30'; g.beginPath(); g.arc(128, 62, 32, Math.PI, 0); g.fill(); g.fillRect(92, 60, 72, 8); // 안전모
+      g.fillStyle = '#fff6c0'; g.shadowColor = '#ffe080'; g.shadowBlur = 16; g.beginPath(); g.arc(128, 46, 7, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
+      g.strokeStyle = '#5a4030'; g.lineWidth = 7; g.beginPath(); g.moveTo(178, 190); g.lineTo(214, 70); g.stroke(); // 곡괭이
+      g.strokeStyle = '#8a8d94'; g.lineWidth = 8; g.beginPath(); g.moveTo(180, 70); g.quadraticCurveTo(214, 56, 246, 84); g.stroke();
+      g.fillStyle = '#1a2030'; g.beginPath(); g.ellipse(116, 80, 6, 9, 0, 0, Math.PI * 2); g.ellipse(140, 80, 6, 9, 0, 0, Math.PI * 2); g.fill();
+    } else if (kind === 'grave_crow') {
+      g.fillStyle = '#20202a';
+      g.beginPath(); g.ellipse(128, 160, 50, 60, 0, 0, Math.PI * 2); g.fill(); // 몸
+      g.beginPath(); g.moveTo(90, 140); g.quadraticCurveTo(20, 90, 6, 150); g.quadraticCurveTo(50, 150, 96, 190); g.fill(); // 날개
+      g.beginPath(); g.moveTo(166, 140); g.quadraticCurveTo(236, 90, 250, 150); g.quadraticCurveTo(206, 150, 160, 190); g.fill();
+      g.beginPath(); g.moveTo(108, 210); g.lineTo(128, 250); g.lineTo(148, 210); g.fill(); // 꽁지
+      g.beginPath(); g.arc(128, 98, 30, 0, Math.PI * 2); g.fill(); // 머리
+      g.fillStyle = '#8a8070'; g.beginPath(); g.moveTo(118, 108); g.lineTo(128, 146); g.lineTo(138, 108); g.fill(); // 부리
+      eyes([[116, 94], [140, 94]], '#c060ff', 4);
+    } else if (kind === 'ghoul') {
+      g.fillStyle = '#6f8a5a'; g.strokeStyle = '#6f8a5a'; g.lineCap = 'round';
+      g.beginPath(); g.ellipse(124, 130, 46, 54, 0.15, 0, Math.PI * 2); g.fill(); // 굽은 몸
+      g.lineWidth = 16; g.beginPath(); g.moveTo(96, 120); g.lineTo(56, 170); g.lineTo(48, 214); g.moveTo(152, 120); g.lineTo(196, 160); g.lineTo(214, 206); g.stroke(); // 긴 팔
+      g.lineWidth = 18; g.beginPath(); g.moveTo(108, 176); g.lineTo(96, 248); g.moveTo(144, 176); g.lineTo(160, 248); g.stroke();
+      g.beginPath(); g.arc(136, 76, 30, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#4a3a30'; g.fillRect(84, 150, 82, 40); // 누더기
+      g.fillStyle = '#1a1210'; g.beginPath(); g.ellipse(136, 98, 16, 9, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#e8e0c0'; for (let i = 0; i < 5; i++) g.fillRect(124 + i * 5, 92, 3, 6);
+      eyes([[124, 72], [148, 72]], '#f0f060', 4);
+    } else if (kind === 'bone_knight') {
+      g.strokeStyle = '#d9cfb8'; g.lineCap = 'round'; g.lineWidth = 9;
+      g.beginPath(); g.moveTo(108, 170); g.lineTo(100, 250); g.moveTo(148, 170); g.lineTo(158, 250); g.stroke();
+      g.fillStyle = '#4a4e58'; g.beginPath(); g.moveTo(86, 70); g.lineTo(170, 70); g.lineTo(160, 176); g.lineTo(96, 176); g.closePath(); g.fill(); // 흉갑
+      g.beginPath(); g.ellipse(84, 78, 26, 16, 0, 0, Math.PI * 2); g.ellipse(172, 78, 26, 16, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#d9cfb8'; g.beginPath(); g.arc(128, 44, 24, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#4a4e58'; g.beginPath(); g.arc(128, 40, 27, Math.PI, 0); g.fill(); g.fillRect(124, 4, 8, 20); // 투구
+      g.fillStyle = '#1a1512'; g.beginPath(); g.arc(119, 48, 6, 0, Math.PI * 2); g.arc(137, 48, 6, 0, Math.PI * 2); g.fill();
+      eyes([[119, 48], [137, 48]], '#ffd060', 2.5);
+      g.fillStyle = '#6a3a2a'; g.beginPath(); g.moveTo(26, 100); g.lineTo(82, 100); g.lineTo(78, 170); g.lineTo(54, 196); g.lineTo(30, 170); g.closePath(); g.fill(); // 방패
+      g.strokeStyle = '#c8a050'; g.lineWidth = 4; g.stroke();
+      g.strokeStyle = '#9aa0aa'; g.lineWidth = 8; g.beginPath(); g.moveTo(186, 150); g.lineTo(236, 20); g.stroke(); // 검
+    } else if (kind === 'gravekeeper') {
+      g.fillStyle = '#3e4a3a';
+      g.beginPath(); g.moveTo(70, 80); g.lineTo(186, 80); g.lineTo(206, 256); g.lineTo(50, 256); g.closePath(); g.fill(); // 녹슨 갑옷 위 망토
+      g.fillStyle = '#5a5248'; g.beginPath(); g.ellipse(64, 92, 34, 20, -0.2, 0, Math.PI * 2); g.ellipse(192, 92, 34, 20, 0.2, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.moveTo(100, 82); g.lineTo(100, 28); g.quadraticCurveTo(128, 6, 156, 28); g.lineTo(156, 82); g.closePath(); g.fill(); // 투구
+      g.fillStyle = '#000'; g.fillRect(106, 46, 44, 7);
+      eyes([[118, 50], [138, 50]], '#60ff90', 4);
+      g.strokeStyle = '#5a4030'; g.lineWidth = 8; g.beginPath(); g.moveTo(222, 250); g.lineTo(222, 40); g.stroke(); // 삽
+      g.fillStyle = '#7a7a70'; g.beginPath(); g.moveTo(206, 40); g.lineTo(238, 40); g.lineTo(234, 4); g.lineTo(210, 4); g.fill();
+      g.strokeStyle = '#a89a70'; g.lineWidth = 3; for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(46 + i * 6, 190 + i * 8, 8, 0, Math.PI * 2); g.stroke(); } // 열쇠 꾸러미
+    } else if (kind === 'fallen_monk') {
+      g.fillStyle = '#3a3040';
+      g.beginPath(); g.moveTo(128, 30); g.quadraticCurveTo(176, 40, 180, 110); g.lineTo(204, 252); g.lineTo(52, 252); g.lineTo(76, 110); g.quadraticCurveTo(80, 40, 128, 30); g.fill(); // 두건 달린 법의
+      g.fillStyle = '#0c0a10'; g.beginPath(); g.ellipse(128, 84, 28, 32, 0, 0, Math.PI * 2); g.fill(); // 두건 속 어둠
+      eyes([[118, 84], [138, 84]], '#ff5050', 3.5);
+      g.strokeStyle = '#8a6a40'; g.lineWidth = 5; g.beginPath(); g.moveTo(96, 150); g.lineTo(160, 150); g.stroke(); // 허리끈
+      g.fillStyle = '#c8a050'; g.beginPath(); g.arc(128, 196, 10, 0, Math.PI * 2); g.fill(); // 묵주
+      g.fillStyle = '#d8d0b8'; g.beginPath(); g.ellipse(78, 176, 12, 10, 0, 0, Math.PI * 2); g.ellipse(178, 176, 12, 10, 0, 0, Math.PI * 2); g.fill(); // 앙상한 손
+      g.fillStyle = 'rgba(180,120,255,0.8)'; g.shadowColor = '#b080ff'; g.shadowBlur = 18; g.beginPath(); g.arc(178, 160, 9, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
+    } else if (kind === 'gargoyle') {
+      g.fillStyle = '#6a6c70';
+      for (const s of [-1, 1]) { g.beginPath(); g.moveTo(128 + s * 30, 100); g.lineTo(128 + s * 120, 30); g.lineTo(128 + s * 110, 90); g.lineTo(128 + s * 124, 120); g.lineTo(128 + s * 90, 130); g.lineTo(128 + s * 40, 150); g.fill(); } // 날개
+      g.fillStyle = '#80838a';
+      g.beginPath(); g.ellipse(128, 156, 46, 56, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(94, 226, 26, 22, 0, 0, Math.PI * 2); g.ellipse(162, 226, 26, 22, 0, 0, Math.PI * 2); g.fill(); // 웅크린 다리
+      g.beginPath(); g.arc(128, 92, 30, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#5a5c60'; g.beginPath(); g.moveTo(104, 76); g.lineTo(92, 40); g.lineTo(114, 68); g.moveTo(142, 68); g.lineTo(164, 40); g.lineTo(152, 76); g.fill(); // 뿔
+      g.fillStyle = '#1a1a1e'; g.fillRect(110, 106, 36, 8);
+      g.fillStyle = '#e8e0d0'; g.fillRect(114, 106, 4, 6); g.fillRect(138, 106, 4, 6);
+      eyes([[116, 90], [140, 90]], '#ffa020', 4);
+    } else if (kind === 'dragon') {
+      const scale = g.createLinearGradient(0, 30, 0, 256);
+      scale.addColorStop(0, '#8a8478'); scale.addColorStop(1, '#3e3a34');
+      g.fillStyle = '#4a4640';
+      for (const s of [-1, 1]) { g.beginPath(); g.moveTo(128 + s * 40, 120); g.lineTo(128 + s * 124, 20); g.lineTo(128 + s * 120, 70); g.lineTo(128 + s * 128, 130); g.lineTo(128 + s * 104, 120); g.lineTo(128 + s * 100, 170); g.lineTo(128 + s * 50, 170); g.fill(); } // 날개
+      g.fillStyle = scale;
+      g.beginPath(); g.ellipse(128, 196, 70, 56, 0, 0, Math.PI * 2); g.fill(); // 몸
+      g.beginPath(); g.moveTo(108, 160); g.quadraticCurveTo(100, 90, 120, 60); g.lineTo(144, 60); g.quadraticCurveTo(156, 90, 148, 160); g.fill(); // 목
+      g.beginPath(); g.ellipse(132, 52, 36, 26, 0, 0, Math.PI * 2); g.fill(); // 머리
+      g.beginPath(); g.moveTo(150, 46); g.lineTo(196, 60); g.lineTo(150, 72); g.fill(); // 주둥이
+      g.fillStyle = '#d8cfb0'; g.beginPath(); g.moveTo(108, 36); g.lineTo(84, 6); g.lineTo(118, 30); g.moveTo(140, 30); g.lineTo(150, 0); g.lineTo(152, 34); g.fill(); // 뿔
+      g.fillStyle = '#e8c890'; for (let i = 0; i < 5; i++) { g.beginPath(); g.ellipse(128, 168 + i * 16, 30 - i * 2, 6, 0, 0, Math.PI * 2); g.fill(); } // 배 비늘
+      g.fillStyle = '#3e3a34'; g.beginPath(); g.ellipse(76, 240, 26, 14, 0, 0, Math.PI * 2); g.ellipse(180, 240, 26, 14, 0, 0, Math.PI * 2); g.fill(); // 발
+      g.fillStyle = 'rgba(255,140,40,0.85)'; g.shadowColor = '#ff8020'; g.shadowBlur = 20; g.beginPath(); g.moveTo(196, 60); g.lineTo(228, 52); g.lineTo(216, 66); g.lineTo(234, 74); g.lineTo(196, 66); g.fill(); g.shadowBlur = 0; // 입김
+      eyes([[126, 46], [146, 46]], '#ffb020', 4);
     }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
     return t;
   }
+  // 적 그림 종류(sprite)마다 3D 화면 속 크기·높이·거리, 기본 빛깔. glow 는 빛나는 적
   const FOE_LOOK = {
     rat: { scale: 1.1, y: 0.53, dist: 2.1, tint: 0xc8b8a8 },
     skeleton: { scale: 2.0, y: 1.03, dist: 2.4, tint: 0xd8ccb8 },
     wisp: { scale: 1.4, y: 1.2, dist: 2.2, tint: 0xffffff, glow: true },
-    guardian: { scale: 2.5, y: 1.25, dist: 2.7, tint: 0xb8b0b0 },
-    slime: { scale: 1.0, y: 0.48, dist: 2.1, tint: 0xffffff }
+    guardian: { scale: 2.2, y: 1.1, dist: 2.6, tint: 0xb8b0b0 },
+    slime: { scale: 1.0, y: 0.48, dist: 2.1, tint: 0xffffff },
+    horn_rabbit: { scale: 1.0, y: 0.48, dist: 2.1, tint: 0xffffff },
+    wolf: { scale: 1.4, y: 0.68, dist: 2.2, tint: 0xffffff },
+    cave_bat: { scale: 1.2, y: 1.35, dist: 2.2, tint: 0xffffff },
+    rock_golem: { scale: 1.6, y: 0.8, dist: 2.3, tint: 0xffffff },
+    miner: { scale: 1.9, y: 1.0, dist: 2.4, tint: 0xffffff },
+    golem: { scale: 2.6, y: 1.3, dist: 2.7, tint: 0xffffff },
+    grave_crow: { scale: 1.1, y: 1.3, dist: 2.2, tint: 0xffffff },
+    ghoul: { scale: 1.9, y: 0.95, dist: 2.4, tint: 0xffffff },
+    bone_knight: { scale: 2.1, y: 1.05, dist: 2.4, tint: 0xffffff },
+    gravekeeper: { scale: 2.5, y: 1.25, dist: 2.7, tint: 0xffffff },
+    fallen_monk: { scale: 2.0, y: 1.0, dist: 2.4, tint: 0xffffff },
+    gargoyle: { scale: 1.8, y: 1.0, dist: 2.4, tint: 0xffffff },
+    dragon: { scale: 2.8, y: 1.3, dist: 3.0, tint: 0xffffff }
   };
+  const foeLook = (sprite) => FOE_LOOK[sprite] || { scale: 1.6, y: 0.8, dist: 2.3, tint: 0xffffff };
   const texCache = {};
   // monsters/<sprite>.png 가 있으면 그 그림을 쓰고, 없으면 코드로 그린 기본 그림을 쓴다
   const SPRITE_DIR = 'monsters/';
@@ -816,11 +982,12 @@
       return;
     }
     if (!scene) return;
-    const mon = D.monsters[S.battle.mid], look = FOE_LOOK[mon.sprite];
+    const mon = D.monsters[S.battle.mid], look = foeLook(mon.sprite);
     const art = foeArt(mon.sprite);
     const n = S.battle.foes.length, fx = DX[S.dir], fz = DY[S.dir], rx = -fz, rz = fx;
     S.battle.foes.forEach((f, i) => {
-      const mat = new THREE.SpriteMaterial({ map: art.tex, color: mon.tint != null ? mon.tint : look.tint, transparent: true, depthTest: false, depthWrite: false, fog: false,
+      const tint = mon.tint != null ? mon.tint : look.tint;
+      const mat = new THREE.SpriteMaterial({ map: art.tex, color: tint, transparent: true, depthTest: false, depthWrite: false, fog: false,
         blending: look.glow ? THREE.AdditiveBlending : THREE.NormalBlending });
       const sp = new THREE.Sprite(mat);
       const lat = (i - (n - 1) / 2) * (n > 2 ? 0.7 : 0.9);
@@ -830,7 +997,7 @@
       sp.renderOrder = 10 + i;
       sp.visible = f.hp > 0;
       scene.add(sp);
-      const fs = { sp, kind: mon.sprite, base: sp.position.clone(), look, hit: 0, lunge: 0, dying: f.hp > 0 ? 0 : 1, phase: Math.random() * 6 };
+      const fs = { sp, kind: mon.sprite, base: sp.position.clone(), look, tint, hit: 0, lunge: 0, dying: f.hp > 0 ? 0 : 1, phase: Math.random() * 6 };
       dressFoe(fs, art);
       foeSprites.push(fs);
     });
@@ -877,7 +1044,7 @@
         f.sp.material.color.setRGB(1, 0.35 + (1 - f.hit) * 0.5, 0.3 + (1 - f.hit) * 0.5);
         p.x += Math.sin(clock * 80) * 0.04 * f.hit;
         f.hit = Math.max(0, f.hit - dt * 3);
-        if (!f.hit) f.sp.material.color.setHex(f.look.tint);
+        if (!f.hit) f.sp.material.color.setHex(f.tint);
       }
       if (f.dying > 0) {
         f.dying = Math.min(1, f.dying + dt * 1.6);
@@ -1944,7 +2111,7 @@
     }
     const lw = Math.max(2, Math.round(W / 300));
     wctx.strokeStyle = '#f4f0e8'; wctx.lineWidth = lw; wctx.strokeRect(bx - lw * 1.5, by - lw * 1.5, bw + lw * 3, bh + lw * 3);
-    const n = foeSprites.length, mon = D.monsters[S.battle.mid], look = FOE_LOOK[mon.sprite] || { scale: 1.2 };
+    const n = foeSprites.length, mon = D.monsters[S.battle.mid], look = foeLook(mon.sprite);
     foeSprites.forEach((f, i) => {
       if (f.dying >= 1) return;
       const img = f.art.tex.image, aspect = f.art.aspect || 1;
@@ -2166,6 +2333,7 @@
     if (camera) snapCamera();
     renderLog();
     draw();
+    if (S.battle && !D.monsters[S.battle.mid]) S.battle = null; // 없어진 적이면 전투를 버린다
     if (S.battle) { if (scene) spawnFoes(); showBattle(); }
   }
 
@@ -2340,6 +2508,7 @@
   if (location.hash === '#debug') {
     window.dungeon = {
       state: () => S, battle: (id) => startBattle(id, null),
+      art: (kind) => monsterTexture(kind).image.toDataURL(), // 코드로 그린 기본 적 그림
       warp: (f, x, y, dir) => { applyEffects([{ warp: D.areas[f] ? { area: f, x, y, dir } : { floor: f, x, y, dir } }]); }
     };
   }
