@@ -229,7 +229,8 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
     grid-template-areas: "view view" "map party" "battle battle" "pad pad" "log log" "items items";
   }
   .main, aside, .below { display: contents; }
-  .viewFrame { grid-area: view; }
+  /* 화면 폭에 꽉 채우고(사파리는 aspect-ratio 가 있는 칸을 저절로 늘리지 않는다) 세로로 조금 더 길게 */
+  .viewFrame { grid-area: view; width: 100%; justify-self: stretch; aspect-ratio: 4 / 3; }
   .battle { grid-area: battle; }
   .pad { grid-area: pad; }
   .cardParty { grid-area: party; }
@@ -296,6 +297,10 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
   .cardParty dt { font-size: 12px; }
   .cardParty dd { font-size: 16px; }
   .card { padding: 8px; }
+}
+/* 키가 작은 폰(아이폰 SE 등)은 원래 16:10 으로 두어야 조작 버튼까지 한 화면에 든다 */
+@media (max-width: 760px) and (max-height: 620px) {
+  .viewFrame { aspect-ratio: 16 / 10; }
 }
 /* 폰 가로: 화면을 왼쪽, 조작 패드를 오른쪽에 두어 한 화면에 다 들어오게 */
 @media (max-width: 960px) and (max-height: 520px) and (orientation: landscape) {
