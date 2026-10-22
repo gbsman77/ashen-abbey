@@ -214,7 +214,7 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
 .keys kbd { font: 400 15px var(--f-num); color: var(--bone); border: 1px solid var(--stone); padding: 0 4px; }
 
 @media (max-width: 760px) {
-  /* 폰 세로: 화면 → (전투) → 조작 패드 → 파티 → 기록 → 지도·소지품 순으로 한 줄로 쌓는다 */
+  /* 폰 세로: 한 화면에 다 보이게. 화면 → [지도 | 파티] → (전투) → 조작 패드 → 기록 → 소지품 */
   body {
     font-size: 15px;
     padding-left: max(8px, env(safe-area-inset-left, 0px));
@@ -222,34 +222,42 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
     padding-top: max(8px, env(safe-area-inset-top, 0px));
     padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
   }
-  .wrap { gap: 8px; }
-  .game { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+  .wrap { gap: 6px; }
+  .game {
+    display: grid; gap: 6px; align-items: stretch;
+    grid-template-columns: minmax(104px, 32%) minmax(0, 1fr);
+    grid-template-areas: "view view" "map party" "battle battle" "pad pad" "log log" "items items";
+  }
   .main, aside, .below { display: contents; }
-  .viewFrame { order: 1; }
-  .battle { order: 2; }
-  .pad { order: 3; }
-  .cardParty { order: 4; }
-  .log { order: 5; min-height: 0; max-height: 7.4em; overflow: hidden; }
-  .cardMap { order: 6; }
-  .cardItems { order: 7; }
+  .viewFrame { grid-area: view; }
+  .battle { grid-area: battle; }
+  .pad { grid-area: pad; }
+  .cardParty { grid-area: party; }
+  .log { grid-area: log; min-height: 0; max-height: 4.9em; overflow: hidden; padding: 6px 10px; font-size: 13px; line-height: 1.5; }
+  .cardMap { grid-area: map; }
+  .cardItems { grid-area: items; }
   aside .help { display: none; }
-  #minimap { max-width: 240px; margin: 0 auto; }
+  /* 지도·파티 칸: 제목 줄을 빼고 꽉 채운다 */
+  .cardMap h3, .cardParty h3 { display: none; }
+  .cardMap, .cardParty { padding: 6px; gap: 4px; align-content: center; }
+  .floorName { font-size: 12px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #minimap { max-width: 100%; margin: 0; }
   h1 { font-size: 22px; }
   h1 small { display: none; }
   /* 폰: 제목과 SAVE/LOAD/NEW 가 한 줄에 들어가게 화면 너비에 맞춰 줄인다 */
   header { flex-wrap: nowrap; gap: 8px; }
   .sys { gap: 6px; }
-  .sys button { min-height: 40px; padding: 4px 10px; }
-  h1.art img { height: auto; width: min(170px, 38vw); }
+  .sys button { min-height: 36px; padding: 4px 10px; }
+  h1.art img { height: auto; width: min(150px, 36vw); }
   .sys button.art { min-height: 0; }
-  .sys button.art img { height: auto; width: min(64px, 15vw); }
+  .sys button.art img { height: auto; width: min(60px, 14vw); }
   #bgmControl input { display: none; }
 
-  /* 조작 패드: 손가락 크기(한 칸 최소 64px), 화면 너비를 다 쓴다 */
-  .pad { gap: 6px; }
-  .pad button { min-height: 64px; font-size: 14px; }
+  /* 조작 패드: 작게 줄이되 한 칸은 손가락 크기(약 56px)를 남긴다. 화면 밀기로도 움직일 수 있다 */
+  .pad { gap: 6px; width: min(300px, 100%); justify-self: center; }
+  .pad button { min-height: 52px; font-size: 13px; }
   .pad button kbd { display: none; }
-  .pad.art { max-width: 420px; width: 100%; margin: 0 auto; }
+  .pad.art { width: min(268px, 100%); }
   .pad button.art { min-height: 0; }
 
   /* 사건 창: 작은 화면 위에 겹치면 글이 잘리므로 아래쪽 시트로 띄운다 */
@@ -266,16 +274,28 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
   .choice { min-height: 48px; padding: 10px 12px; align-items: center; border-color: var(--stone); background: rgba(7, 8, 13, 0.5); font-size: 16px; }
   .choices { gap: 6px; }
   .bCmds { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .battle { padding: 10px 12px; }
+  .battle { padding: 8px 10px; gap: 4px; }
+  .bHead h2 { font-size: 16px; }
+  .bLog { min-height: 0; font-size: 13px; }
+  .bPrompt { font-size: 13px; }
+  .bCmds .choice { min-height: 44px; padding: 6px 10px; }
 
-  /* 파티: 세 사람을 가로로 나란히 */
-  .party { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-  .party li { grid-template-columns: minmax(0, 1fr); justify-items: stretch; align-items: start; gap: 6px; }
-  .face { width: 100%; max-width: 72px; justify-self: center; }
-  .pm-top { flex-wrap: wrap; gap: 2px 6px; }
+  /* 파티: 한 사람당 한 줄 (작은 얼굴 + 이름·레벨 + 체력 막대 + 숫자) */
+  .party { gap: 5px; }
+  .party li { grid-template-columns: 36px minmax(0, 1fr); gap: 6px; }
+  .face { width: 36px; }
+  .face::before { font-size: 18px; }
+  .pm-info { gap: 2px; }
+  .pm-top { gap: 4px; }
+  .pm-top b { font-size: 13px; }
   .pm-top .cls { display: none; }
-  .pm-num { flex-direction: column; font-size: 15px; }
-  .card { padding: 10px; }
+  .pm-top .lv { font-size: 14px; }
+  .bar { height: 4px; }
+  .pm-num { font-size: 13px; gap: 6px; }
+  .cardParty dl { margin-top: 2px; }
+  .cardParty dt { font-size: 12px; }
+  .cardParty dd { font-size: 16px; }
+  .card { padding: 8px; }
 }
 /* 폰 가로: 화면을 왼쪽, 조작 패드를 오른쪽에 두어 한 화면에 다 들어오게 */
 @media (max-width: 960px) and (max-height: 520px) and (orientation: landscape) {
@@ -309,8 +329,8 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
   .choice { min-height: 44px; align-items: center; }
   .sys button { min-height: 40px; }
 }
-@media (max-width: 420px) {
-  .pm-top b { font-size: 14px; }
+@media (max-width: 360px) {
+  .pm-num span + span { display: none; }  /* 아주 좁으면 MP 숫자는 숨긴다 */
 }
 /* 시작 화면: ui/title_bg.png 가 있으면 배경으로 깔고, 없으면 어둠 속 안개만 */
 .titleScreen {
