@@ -1291,10 +1291,10 @@
     'v': { tile: 'barrel', under: 'ground' }, 'C': { tile: 'chapel_roof' }, 'G': { tile: 'stone_wall' },
     // 집 안
     '_': { tile: 'floor', walk: true }, 'r': { tile: 'rug', walk: true }, 'I': { tile: 'iwall' },
-    // block: 그림이 있으면 붙어 있는 같은 칸 묶음 위에 한 장으로 그린다 (fit 비율 유지 / wide 옆으로 늘림)
+    // block: 그림이 있으면 붙어 있는 같은 칸 묶음 위에 한 장으로 그린다 (fit 비율 유지 / wide 옆으로 늘림 / rise 위로 넘치는 높이, 기본 0.6칸)
     'q': { tile: 'table', under: 'ground', block: 'fit' }, 'B': { tile: 'bed', under: 'ground', block: 'fit' },
     'K': { tile: 'counter', under: 'ground', over: true }, 'J': { tile: 'shelf', under: 'ground' },
-    'O': { tile: 'hearth' }, 'e': { tile: 'pew', under: 'ground', block: 'wide' }, 'Q': { tile: 'altar', under: 'ground', over: true, block: 'wide' },
+    'O': { tile: 'hearth' }, 'e': { tile: 'pew', under: 'ground', block: 'wide' }, 'Q': { tile: 'altar', under: 'ground', over: true, block: 'wide', rise: 0.25 },
     'P': { tile: 'plant', under: 'ground' }
   };
   // 'ground' 는 지역 바닥 타일로 바꿔 읽는다
@@ -1505,6 +1505,15 @@
       r('#7a7a84', 5, 4, 6, 7); r('#9a9aa4', 5, 4, 2, 7); r('#5a6a48', 5, 4, 6, 1);
       r('#6c6c74', 4, 2, 8, 2); r('#5a6a48', 4, 2, 3, 1);
       r('#2a3458', 7, 6, 2, 3); r('#a8d8ff', 7, 7, 2, 1); r('#fff2c0', 8, 1, 1, 1);
+    }),
+    crypt: () => dot((r) => {
+      r('#2c3a24', 0, 0, PX, PX); speck(r, 31, ['#24301e', '#36462c'], 20);
+      r('rgba(0,0,0,0.3)', 2, 13, 13, 2);
+      r('#6a6a70', 3, 5, 10, 9); r('#84848a', 3, 5, 10, 1); r('#55555c', 2, 3, 12, 2); r('#6e6e76', 4, 2, 8, 1);
+      r('#0c0a10', 6, 8, 4, 6); r('#1c1824', 7, 9, 2, 5);
+      r('#7a7a80', 7, 0, 2, 3); r('#7a7a80', 6, 1, 4, 1);
+      r('#4a6a3a', 3, 5, 2, 1); r('#4a6a3a', 11, 6, 2, 2); r('#4a6a3a', 2, 4, 3, 1);
+      r('#8a8a90', 0, 10, 2, 4); r('#8a8a90', 14, 11, 2, 3); r('#9ad0ff', 1, 9, 1, 1);
     }),
     abbey: () => dot((r) => {
       r('#6a5a46', 0, 0, PX, PX); speck(r, 18, ['#5a4c3a', '#7a6a52'], 20);
@@ -1893,18 +1902,23 @@
         if (ev.door) blit(tileImg('door', clock), px, py, T);
       }
     }
+    // 가구 묶음과 사람은 아래쪽 끝이 위에 있는 것부터 그린다 (제단 뒤에 선 사람은 다리가 가려진다)
+    const draws = [];
     for (const b of areaBlocks()) {
       if (b.x + b.w < x0 || b.x > x1 + 1 || b.y + b.h < y0 || b.y > y1 + 1) continue;
       const img = worldArt(TERRAIN[b.ch].tile); if (!img) continue;
-      const W2 = b.w * T, H2 = b.h * T;
-      let s = Math.min(W2 * 0.96 / img.width, (H2 + T * 0.6) / img.height), w = img.width * s, h = img.height * s;
-      if (TERRAIN[b.ch].block === 'wide') w = Math.min(W2 * 0.96, w * 1.6);
-      wctx.imageSmoothingEnabled = true;
-      wctx.drawImage(img, Math.round(ox + b.x * T + (W2 - w) / 2), Math.round(oy + b.y * T + H2 - h - T * 0.03), Math.round(w), Math.round(h));
+      draws.push({ z: b.y + b.h, f: () => {
+        const W2 = b.w * T, H2 = b.h * T;
+        let s = Math.min(W2 * 0.96 / img.width, (H2 + T * (TERRAIN[b.ch].rise ?? 0.6)) / img.height), w = img.width * s, h = img.height * s;
+        if (TERRAIN[b.ch].block === 'wide') w = Math.min(W2 * 0.96, w * 1.6);
+        wctx.imageSmoothingEnabled = true;
+        wctx.drawImage(img, Math.round(ox + b.x * T + (W2 - w) / 2), Math.round(oy + b.y * T + H2 - h - T * 0.03), Math.round(w), Math.round(h));
+      } });
     }
     const stepF = dist > 0.01 ? Math.floor(hero.walk * 6) % 2 : Math.floor(clock * 2) % 2;
-    for (const m of ensureMovers()) drawPerson(m.ev.npc, m.dir, Math.floor(clock * 2 + m.hx) % 2, Math.round(ox + m.fx * T), Math.round(oy + m.fy * T), T);
-    drawPerson('hero', S.wdir, stepF, Math.round(ox + hero.x * T), Math.round(oy + hero.y * T), T, dist > 0.01);
+    for (const m of ensureMovers()) draws.push({ z: m.fy + 1, f: () => drawPerson(m.ev.npc, m.dir, Math.floor(clock * 2 + m.hx) % 2, Math.round(ox + m.fx * T), Math.round(oy + m.fy * T), T) });
+    draws.push({ z: hero.y + 1, f: () => drawPerson('hero', S.wdir, stepF, Math.round(ox + hero.x * T), Math.round(oy + hero.y * T), T, dist > 0.01) });
+    draws.sort((a, b) => a.z - b.z).forEach((d) => d.f());
     if (S.battle) drawWorldBattle(W, H);
   }
 
@@ -2179,6 +2193,10 @@
   };
   document.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (titleOpen) { // 시작 화면에서는 Enter 로 맨 위 버튼을 누른다
+      if (e.key === 'Enter' && !(document.activeElement && document.activeElement.closest('#titleScreen button'))) { e.preventDefault(); ($('tsCont').hidden ? $('tsNew') : $('tsCont')).click(); }
+      return;
+    }
     if (dialog || S.battle) {
       const n = parseInt(e.key, 10);
       const btns = (dialog ? $('evChoices') : $('bCmds')).children;
@@ -2268,8 +2286,38 @@
     Object.defineProperty(mini, 'height', { get: () => h });
   })();
 
+  // ---------- 시작 화면 ----------
+  // 처음 열 때 보여 준다 (기록이 있으면 이어하기). ui/title_bg.png 가 있으면 배경, ui/title.png 가 있으면 제목 그림
+  const titleUI = $('titleScreen');
+  let titleOpen = false;
+  function savedInfo() {
+    try {
+      const d = JSON.parse(localStorage.getItem(SAVE_KEY));
+      if (!d) return null;
+      const P = d.mode === 'dungeon' ? D.floors[d.floor] : D.areas[d.area];
+      return (P ? P.name + ' · ' : '') + 'Lv ' + Math.max(...d.party.map((m) => m.lv || 1));
+    } catch (e) { return null; }
+  }
+  function showTitle() {
+    const info = savedInfo();
+    $('tsCont').hidden = !info;
+    $('tsContInfo').textContent = info || '';
+    titleUI.hidden = false; titleOpen = true;
+    (info ? $('tsCont') : $('tsNew')).focus();
+  }
+  function closeTitle(next) { titleUI.hidden = true; titleOpen = false; next(); }
+  $('tsNew').addEventListener('click', () => closeTitle(() => startGame(null)));
+  $('tsCont').addEventListener('click', () => closeTitle(load));
+  $('tsHelpBtn').addEventListener('click', () => {
+    const open = $('tsHelp').hidden;
+    $('tsHelp').hidden = !open; $('tsHelpBtn').setAttribute('aria-expanded', String(open));
+  });
+  uiArt('title_bg', (img) => { titleUI.style.setProperty('--title-bg', 'url("' + img.src + '")'); titleUI.classList.add('hasArt'); });
+  uiArt('title', (img) => { const h = $('tsTitle'); h.setAttribute('aria-label', D.title); h.textContent = ''; h.append(img); });
+
   function boot(data) {
     startGame(data);
+    if (!data && location.hash !== '#debug') showTitle();
     try {
       if (!THREE) throw new Error('three');
       initThree();

@@ -1,5 +1,6 @@
 // 배경음악: 외부 파일 없이 Web Audio로 합성하는 16비트풍 칩튠 (모두 오리지널 곡).
-// 장면별 곡: town(마을), field(숲속나라 들판), dungeon1(수도원 지하 1층, 은은하게), dungeon2(지하 2층, 웅장하게)
+// 장면별 곡: town(마을), field(숲속나라 들판), dungeon1(수도원 지하 1층, 은은하게), dungeon2(지하 2층, 웅장하게),
+//            crypt(수도사 묘지, 음침하게)
 // 사용: BGM.play('town') / BGM.scene('b1') / BGM.stop() / BGM.toggle() (M 키, 오른쪽 아래 ♪ 버튼)
 // 브라우저는 사용자가 한 번 누르거나 키를 쳐야 소리를 내므로 첫 입력 때 재생을 시작한다.
 (function () {
@@ -174,8 +175,31 @@
     };
   }
 
-  const SONGS = { town: songTown, field: songField, dungeon1: songDungeon1, dungeon2: songDungeon2 };
-  const SCENES = { town: 'town', field: 'field', b1: 'dungeon1', b2: 'dungeon2' };
+  // 수도사 묘지: 음침하게. E 프리지아(반음 내려가는 F), 아주 느린 심장 박동 위로 낮은 합창과 금 간 종소리.
+  function songCrypt() {
+    const ch = ['Em', 'F', 'Em', 'Dm', 'Em', 'F', 'Am', 'B7'];
+    const mel = bars([
+      '-/8 B4/4 C5/4', 'B4/12 -/4', '-/4 E5/4 F5/4 E5/4', 'D5/12 -/4',
+      '-/8 G4/4 A4/4', 'C5/6 B4/2 A4/8', '-/4 A4/4 C5/4 E5/4', 'D#5/16'
+    ]);
+    const toll = [[0, 'E3'], [32, 'E3'], [64, 'E3'], [96, 'B2']].map(([s, n]) => ({ s, l: 16, m: [midi(n)] }));
+    const creak = [[13, 'F6'], [45, 'A#6'], [77, 'F6'], [109, 'B6']].map(([s, n]) => ({ s, l: 1, m: [midi(n)] }));
+    return {
+      bpm: 54, bars: 8, echo: { time: 0.72, fb: 0.55, mix: 0.5 },
+      tracks: [
+        { inst: 'choir', vol: 0.12, send: 0.7, ev: mel },
+        { inst: 'bell', vol: 0.16, send: 0.8, ev: toll },
+        { inst: 'bell', vol: 0.04, send: 0.9, ev: creak },
+        { inst: 'pad', vol: 0.08, send: 0.6, ev: comp(ch, 3, [[0, 16]], (t) => [t[0], t[1]]) },
+        { inst: 'drone', vol: 0.24, send: 0.2, ev: comp(ch, 2, [[0, 16]], (t) => [t[0] - 12, t[0]]) }
+      ],
+      drums: drums(times(8, ['t..t............'])),
+      dvol: 0.3
+    };
+  }
+
+  const SONGS = { town: songTown, field: songField, dungeon1: songDungeon1, dungeon2: songDungeon2, crypt: songCrypt };
+  const SCENES = { town: 'town', field: 'field', b1: 'dungeon1', b2: 'dungeon2', crypt: 'crypt' };
   const cache = {};
   const song = (name) => cache[name] || (cache[name] = SONGS[name]());
 
@@ -462,7 +486,7 @@
     play,
     stop: () => play(null),
     town: () => play('town'), field: () => play('field'),
-    dungeon1: () => play('dungeon1'), dungeon2: () => play('dungeon2'),
+    dungeon1: () => play('dungeon1'), dungeon2: () => play('dungeon2'), crypt: () => play('crypt'),
     // 게임 장면 키(지역 town/field, 층 b1/b2)로 고른다. 모르는 키면 지금 곡을 이어 간다.
     scene: (key) => { if (key == null) play(null); else if (SCENES[key]) play(SCENES[key]); },
     toggle: () => setMuted(!muted),

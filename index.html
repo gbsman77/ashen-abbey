@@ -312,7 +312,61 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
 @media (max-width: 420px) {
   .pm-top b { font-size: 14px; }
 }
+/* 시작 화면: ui/title_bg.png 가 있으면 배경으로 깔고, 없으면 어둠 속 안개만 */
+.titleScreen {
+  position: fixed; inset: 0; z-index: 50; display: grid; justify-items: center; align-items: start;
+  background: radial-gradient(ellipse at 50% 35%, #1b2030 0%, #0b0d14 55%, #050609 100%) center / cover;
+  overflow-y: auto; text-align: center;
+  padding: max(24px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.titleScreen.hasArt { background: #050609 var(--title-bg) 62% 0 / cover no-repeat; }
+.titleScreen::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(5,6,9,0.15) 0%, rgba(5,6,9,0) 35%, rgba(5,6,9,0.55) 70%, rgba(5,6,9,0.9) 100%);
+}
+.titleScreen .tsInner { position: relative; display: grid; gap: 18px; justify-items: center; width: min(520px, 100%); margin-top: 34vh; }
+.titleScreen h2 { margin: 0; font: 800 clamp(40px, 9vw, 72px)/1.05 var(--f-display); letter-spacing: 0.08em; color: var(--bone); text-shadow: 0 2px 0 #000, 0 0 24px rgba(233,162,59,0.35); }
+.titleScreen h2 img { display: block; width: min(460px, 86vw); height: auto; }
+.titleScreen .tsSub { margin: -6px 0 0; font: 400 22px var(--f-num); letter-spacing: 0.2em; color: var(--ash); }
+.titleScreen .tsTag { margin: 0; max-width: 34em; color: #cfc8b4; text-shadow: 0 1px 2px #000; }
+.titleScreen .tsMenu { display: grid; gap: 10px; width: min(300px, 100%); }
+.titleScreen .tsMenu button {
+  min-height: 48px; padding: 8px 16px; cursor: pointer;
+  background: rgba(14,16,24,0.82); border: 1px solid var(--stone); color: var(--bone);
+  font: 700 17px/1.2 var(--f-body); letter-spacing: 0.04em;
+}
+.titleScreen .tsMenu button:hover, .titleScreen .tsMenu button:focus-visible { border-color: var(--torch); color: var(--torch); }
+.titleScreen .tsMenu button small { display: block; margin-top: 3px; font: 400 13px var(--f-body); color: var(--ash); }
+.titleScreen .tsHelp { margin: 0; padding: 12px 16px; text-align: left; background: rgba(14,16,24,0.88); border: 1px solid var(--stone); font-size: 14px; line-height: 1.7; }
+.titleScreen .tsHelp b { color: var(--torch); font-weight: 700; }
+.titleScreen .tsFoot { margin: 6px 0 0; font: 400 16px var(--f-num); letter-spacing: 0.08em; color: var(--ash); }
+.titleScreen .tsBlink { animation: tsBlink 1.6s steps(2, end) infinite; }
+@keyframes tsBlink { 50% { opacity: 0.2; } }
+@media (prefers-reduced-motion: reduce) { .titleScreen .tsBlink { animation: none; } }
+@media (max-height: 640px) { .titleScreen .tsInner { margin-top: 4vh; gap: 12px; } }
 </style>
+
+<section class="titleScreen" id="titleScreen" aria-label="시작 화면" hidden>
+  <div class="tsInner">
+    <h2 id="tsTitle">잿빛 수도원</h2>
+    <p class="tsSub">THE ASHEN ABBEY</p>
+    <p class="tsTag">삼 년 전 사라진 왕실 탐험대. 잠긴 정문 너머, 다섯 층 아래 침묵의 제단에서 무슨 일이 있었을까.</p>
+    <div class="tsMenu">
+      <button type="button" id="tsNew">처음부터 시작</button>
+      <button type="button" id="tsCont" hidden>이어하기<small id="tsContInfo"></small></button>
+      <button type="button" id="tsHelpBtn" aria-expanded="false">조작 방법</button>
+    </div>
+    <div class="tsHelp" id="tsHelp" hidden>
+      <b>걷기</b> 방향키 · W A S D (던전: A·D 회전, Q·E 옆걸음)<br>
+      <b>조사·말 걸기</b> F · Space<br>
+      <b>선택지·전투 명령</b> 숫자 1~9<br>
+      <b>음악 끄기</b> M · 오른쪽 아래 ♪<br>
+      <b>휴대폰</b> 화면을 밀면 걷고, 톡 치면 조사해요. 아래 버튼을 누르고 있으면 계속 걸어요.<br>
+      <b>기록</b> 마을 성당 신부님께 말하거나 SAVE 버튼
+    </div>
+    <p class="tsFoot tsBlink" id="tsPress">PRESS ENTER</p>
+  </div>
+</section>
 
 <div class="wrap">
   <header>

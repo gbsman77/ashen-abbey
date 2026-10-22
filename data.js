@@ -44,7 +44,7 @@ window.DUNGEON = {
   title: '잿빛 수도원',
   intro: [
     '삼 년 전, 왕실 탐험대가 숲속나라 북쪽 잿빛 수도원으로 떠난 뒤 돌아오지 않았다.',
-    '당신의 일행은 숲속 마을 로엘에 막 도착했다. 장로를 찾아가 이야기를 들어 보자.'
+    '수도원의 정문은 그날 이후 굳게 잠겼다. 당신의 일행은 숲속 마을 로엘에 막 도착했다. 장로를 찾아가 이야기를 들어 보자.'
   ],
   party: {
     name: '탐험대',
@@ -64,13 +64,21 @@ window.DUNGEON = {
     rat:      { name: '거대 쥐',     sprite: 'rat',      hp: 6,  atk: 4,  def: 0, exp: 4,  gold: 2,  count: [2, 4] },
     skeleton: { name: '해골 병사',   sprite: 'skeleton', hp: 14, atk: 6,  def: 2, exp: 10, gold: 6,  count: [1, 3] },
     wisp:     { name: '도깨비불',    sprite: 'wisp',     hp: 9,  atk: 5,  def: 1, exp: 8,  gold: 4,  count: [1, 2], magic: true },
-    guardian: { name: '봉인의 수호자', sprite: 'guardian', hp: 55, atk: 9, def: 3, exp: 80, gold: 50, count: [1, 1], boss: true },
+    guardian: { name: '봉인의 수호자', sprite: 'guardian', hp: 150, atk: 14, def: 5, exp: 200, gold: 100, count: [1, 1], boss: true },
     slime:    { name: '풀빛 슬라임', sprite: 'slime',    hp: 5,  atk: 3,  def: 0, exp: 3,  gold: 3,  count: [1, 3] },
     // 옛 광산 (그림은 같은 것을 쓰고 tint 로 빛깔만 바꾼다)
     cave_rat: { name: '굴 쥐',       sprite: 'rat',      hp: 8,  atk: 5,  def: 1, exp: 6,  gold: 4,  count: [2, 4], tint: 0xc8a070 },
     miner:    { name: '광부의 망령', sprite: 'skeleton', hp: 16, atk: 7,  def: 2, exp: 13, gold: 9,  count: [1, 3], tint: 0xb8c8e8 },
     ore_wisp: { name: '광석 정령',   sprite: 'wisp',     hp: 11, atk: 6,  def: 1, exp: 10, gold: 8,  count: [1, 2], magic: true, tint: 0xffc860 },
-    golem:    { name: '돌 골렘',     sprite: 'guardian', hp: 70, atk: 10, def: 4, exp: 100, gold: 60, count: [1, 1], boss: true, tint: 0x9a8a68 }
+    golem:    { name: '돌 골렘',     sprite: 'guardian', hp: 70, atk: 10, def: 4, exp: 100, gold: 60, count: [1, 1], boss: true, tint: 0x9a8a68 },
+    // 수도사 묘지
+    ghoul:      { name: '구울',         sprite: 'skeleton', hp: 20, atk: 8,  def: 2, exp: 15, gold: 10, count: [1, 3], tint: 0x8fbf7a },
+    grave_rat:  { name: '묘지 쥐',      sprite: 'rat',      hp: 10, atk: 6,  def: 1, exp: 8,  gold: 5,  count: [2, 4], tint: 0x8a7aa8 },
+    shade:      { name: '원혼',         sprite: 'wisp',     hp: 14, atk: 7,  def: 1, exp: 13, gold: 9,  count: [1, 2], magic: true, tint: 0xb080ff },
+    gravekeeper: { name: '타락한 묘지기', sprite: 'guardian', hp: 85, atk: 11, def: 4, exp: 130, gold: 80, count: [1, 1], boss: true, tint: 0x6a9a7a },
+    // 수도원 깊은 층
+    bone_knight: { name: '뼈 기사',     sprite: 'skeleton', hp: 26, atk: 10, def: 3, exp: 20, gold: 14, count: [1, 2], tint: 0xe0c890 },
+    soul_flame:  { name: '혼불',        sprite: 'wisp',     hp: 16, atk: 9,  def: 1, exp: 16, gold: 10, count: [1, 3], magic: true, tint: 0x60d8ff }
   },
   // 새 게임은 마을에서 시작한다. dungeon 은 수도원에 처음 들어갔을 때 서는 곳
   start: { area: 'town', x: 8, y: 12, dir: 1, gold: 30 },
@@ -81,7 +89,10 @@ window.DUNGEON = {
     rusty_key:  { name: '녹슨 열쇠',     desc: '동쪽 봉인된 방의 열쇠.' },
     amulet:     { name: '은빛 부적',     desc: '푸른 결계에 닿으면 빛난다.' },
     mine_key:   { name: '광부장의 열쇠', desc: '옛 광산 갱도 차단문의 열쇠.' },
-    starlight_ore: { name: '별빛 광석',  desc: '밤하늘처럼 빛나는 돌. 대장장이가 반길 것 같다.' }
+    starlight_ore: { name: '별빛 광석',  desc: '밤하늘처럼 빛나는 돌. 대장장이가 반길 것 같다.' },
+    bone_key:   { name: '뼈 열쇠',       desc: '묘지 아래층 철문의 열쇠.' },
+    abbey_key:  { name: '수도원 정문 열쇠', desc: '묘지기가 지니고 있던 커다란 쇠 열쇠.' },
+    silver_key: { name: '은 열쇠',       desc: '수도원 서고 철창의 열쇠.' }
   },
 
   // 지상(위에서 내려다보는 화면). 지형 기호
@@ -97,7 +108,7 @@ window.DUNGEON = {
   //   go      밟자마자 곧바로 이동 (마을 출입구 등) — warp 와 같은 모양
   //   solid   true 면 그 칸으로 들어가지 못하고, 부딪치거나 마주 보고 [조사]하면 사건이 열린다 (사람·문)
   //   npc     사람 그림 이름 (world/npc_<이름>.png) / door: true 면 벽에 문을 그린다
-  //   icon    필드 위 건물 그림 이름 (world/<이름>.png): town · abbey · mine · shrine · chest · sign · mat
+  //   icon    필드 위 건물 그림 이름 (world/<이름>.png): town · abbey · mine · shrine · crypt · chest · sign · mat
   //   iconDone  once 사건이 끝난 뒤 그림 (예: chest_open)
   //   wander  사람이 제자리에서 이 칸 수만큼 돌아다님 / face  처음 바라보는 방향
   //   ground  사건 칸 바닥으로 깔 지형 기호 (기본은 지역의 ground)
@@ -136,13 +147,13 @@ window.DUNGEON = {
         'FFFFFFFFFTTTTTT.,~~..........:.~~~~~~~.TTTTTFFFF',
         'FFFFFFFFFTTTTT...~~..........:.........TTTTFFFFF',
         'FFFFFFFFFTTT...,.~~..........S...t,.....TTTFFFFF',
-        'FFFFFFFF...,.....~~...,t.....,......,...TTTFFFFF',
+        'FFFFFFFF.D.,.....~~...,t.....,......,...TTTFFFFF',
         'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'
       ],
       encounters: { rate: 0.06, forest: 1.8, path: 0.4, table: ['slime', 'slime', 'slime', 'rat'] },
       events: {
         V: { name: '숲속 마을 로엘', trigger: 'step', icon: 'town', go: { area: 'town', x: 1, y: 12, dir: 1 } },
-        s: { name: '갈림길 안내판', trigger: 'step', solid: true, icon: 'sign', start: 'start', pages: { start: { title: '갈림길 안내판', text: '← 숲속 마을 로엘\n↑ 잿빛 수도원 (북쪽 산길)\n→ 옛 광산 (동쪽 끝, 지금은 문을 닫음)\n↓ 별빛 사당 (호숫가)' } } },
+        s: { name: '갈림길 안내판', trigger: 'step', solid: true, icon: 'sign', start: 'start', pages: { start: { title: '갈림길 안내판', text: '← 숲속 마을 로엘\n↑ 잿빛 수도원 (북쪽 산길, 정문이 잠김)\n→ 옛 광산 (동쪽 끝, 지금은 문을 닫음)\n↓ 별빛 사당 (호숫가)\n↙ 수도사 묘지 (남서쪽 숲 깊은 곳)' } } },
         H: {
           name: '광산 앞 은자', trigger: 'step', solid: true, npc: 'hermit', face: 2, start: [{ when: { has: 'starlight_ore' }, page: 'ore' }, { page: 'start' }],
           pages: {
@@ -199,13 +210,49 @@ window.DUNGEON = {
         },
         A: {
           name: '잿빛 수도원', trigger: 'step', icon: 'abbey',
+          start: [
+            { when: { flag: 'abbey_open' }, page: 'start' },
+            { when: { has: 'abbey_key', flag: 'forged' }, page: 'unlock' },
+            { when: { has: 'abbey_key' }, page: 'chained' },
+            { page: 'locked' }
+          ],
+          pages: {
+            locked: {
+              title: '잿빛 수도원',
+              text: '산허리에 잿빛 돌로 지은 수도원이 웅크리고 있다. 정문은 커다란 쇠 자물쇠로 잠겨 있고, 그 위로 검은 사슬이 몇 겹이나 감겨 있다.\n장로라면 무언가 알고 있을지도 모른다.'
+            },
+            chained: {
+              title: '잿빛 수도원',
+              text: '정문 열쇠가 자물쇠에 꼭 맞는다. 하지만 검은 사슬이 문을 붙들고 놓아주지 않는다. 로엔의 검으로 내리쳐 봐도 불똥만 튈 뿐이다.\n"평범한 쇠로는 안 되겠어. 대장장이에게 물어보자."'
+            },
+            unlock: {
+              title: '잿빛 수도원',
+              text: '별빛 무늬가 떠오른 검을 내리치자 검은 사슬이 유리처럼 부서져 내린다. 정문 열쇠를 돌리자 묵직한 소리와 함께 문이 열린다.',
+              effects: [{ flag: 'abbey_open' }, { take: 'abbey_key' }],
+              choices: [
+                { label: '안으로 들어간다', effects: [{ warp: { floor: 'b1', x: 1, y: 1, dir: 1 } }] },
+                { label: '아직 들어가지 않는다' }
+              ]
+            },
+            start: {
+              title: '잿빛 수도원',
+              text: '열린 정문 안쪽으로 지하로 내려가는 계단이 보인다. 수도원은 다섯 층 아래까지 이어져 있다고 한다.',
+              choices: [
+                { label: '안으로 들어간다', effects: [{ warp: { floor: 'b1', x: 1, y: 1, dir: 1 } }] },
+                { label: '아직 들어가지 않는다' }
+              ]
+            }
+          }
+        },
+        D: {
+          name: '수도사 묘지', trigger: 'step', icon: 'crypt',
           start: 'start',
           pages: {
             start: {
-              title: '잿빛 수도원',
-              text: '산허리에 잿빛 돌로 지은 수도원이 웅크리고 있다. 열린 문 안쪽으로 지하로 내려가는 계단이 보인다.',
+              title: '수도사 묘지',
+              text: '빽빽한 숲 한가운데, 이끼 덮인 묘비들 사이로 지하 납골당 입구가 뚫려 있다. 축축한 바람에서 흙과 촛농 냄새가 난다.',
               choices: [
-                { label: '안으로 들어간다', effects: [{ warp: { floor: 'b1', x: 1, y: 1, dir: 1 } }] },
+                { label: '안으로 들어간다', effects: [{ warp: { floor: 'c1', x: 1, y: 1, dir: 1 } }] },
                 { label: '아직 들어가지 않는다' }
               ]
             }
@@ -253,10 +300,10 @@ window.DUNGEON = {
         '6': { name: '농부의 집', trigger: 'step', door: true, ground: 'W', go: { area: 'home', x: 4, y: 6, dir: 0 } },
         s: { name: '안내판', trigger: 'step', solid: true, icon: 'sign', start: 'start', pages: { start: { title: '안내판', text: '숲속 마을 로엘\n북쪽: 작은 성당 · 북서쪽: 장로의 집 · 북동쪽: 여관 "졸린 부엉이"\n남쪽: 약초 할머니의 집 · 대장간 · 농부의 집' } } },
         g: { name: '문지기', trigger: 'step', solid: true, npc: 'guard', ground: '.', face: 1, start: 'start', pages: { start: { title: '문지기', text: '"마을 밖 풀숲에는 슬라임이 자주 나온다. 숲 깊은 곳일수록 더 자주 마주치니 길을 따라가는 게 좋아."' } } },
-        c: { name: '아이', trigger: 'step', solid: true, npc: 'child', ground: '.', wander: 2, start: 'start', pages: { start: { title: '아이', text: '"수도원 우물에 손을 넣으면 뭔가가 문대! 탐험대 아저씨들 일지에 그렇게 쓰여 있었대."' } } },
+        c: { name: '아이', trigger: 'step', solid: true, npc: 'child', ground: '.', wander: 2, start: 'start', pages: { start: { title: '아이', text: '"수도원 우물에 손을 넣으면 뭔가가 문대! 그리고 남서쪽 숲 묘지에는 밤마다 푸른 불이 떠다닌대."' } } },
         d: { name: '꼬마', trigger: 'step', solid: true, npc: 'child', ground: '.', wander: 2, start: 'start', pages: { start: { title: '꼬마', text: '"농부 아저씨네 집 구석에 상자가 있는데, 아저씨는 맨날 잊어버려!"' } } },
         m: { name: '나그네', trigger: 'step', solid: true, npc: 'traveler', ground: 'p', wander: 1, start: 'start', pages: { start: { title: '나그네', text: '"동쪽 다리를 건너면 북쪽 산으로 길이 이어지지. 수도원 앞에서 다쳤다면 무리하지 말고 돌아와 여관에서 쉬게."' } } },
-        i: { name: '장사꾼', trigger: 'step', solid: true, npc: 'merchant', ground: '.', start: 'start', pages: { start: { title: '장사꾼', text: '"물건은 탐험대가 떠나기 전에 몽땅 사 갔다오. 대신 소문 하나 공짜로 주지. 수도원 지하 2층에는 수도사들의 무덤이 있다더군."' } } },
+        i: { name: '장사꾼', trigger: 'step', solid: true, npc: 'merchant', ground: '.', start: 'start', pages: { start: { title: '장사꾼', text: '"물건은 탐험대가 떠나기 전에 몽땅 사 갔다오. 대신 소문 하나 공짜로 주지. 수도원은 지하 5층까지 있는데, 3층 서고는 은 열쇠로 잠겨 있다더군."' } } },
         x: { name: '빨래하던 아주머니', trigger: 'step', solid: true, npc: 'woman', ground: ':', wander: 2, start: 'start', pages: { start: { title: '빨래하던 아주머니', text: '"성당 신부님께 가면 여정을 기록해 주신다우. 먼 길 떠나기 전엔 꼭 들르구려."' } } },
         z: { name: '농부', trigger: 'step', solid: true, npc: 'farmer', ground: 'y', wander: 1, start: 'start', pages: { start: { title: '농부', text: '"올해 감자는 알이 굵어. 그나저나 우리 집 상자에 뭘 넣어 뒀더라…"' } } }
       }
@@ -279,14 +326,15 @@ window.DUNGEON = {
         X: { name: '밖으로', trigger: 'step', icon: 'mat', ground: '_', go: { area: 'town', x: 5, y: 6, dir: 2 } },
         E: {
           name: '장로 하르벤', trigger: 'step', solid: true, npc: 'elder', ground: 'r',
-          start: [{ when: { flag: 'quest' }, page: 'again' }, { page: 'start' }],
+          start: [{ when: { flag: 'abbey_open' }, page: 'open' }, { when: { flag: 'quest' }, page: 'again' }, { page: 'start' }],
           pages: {
             start: {
               title: '장로 하르벤',
-              text: '"먼 길 오느라 고생했네. 삼 년 전 왕실 탐험대가 북쪽 산의 잿빛 수도원으로 들어간 뒤 소식이 끊겼지.\n마을 서쪽 출구로 나가 길을 따라 동쪽 다리를 건너 북쪽으로 가면 수도원이 나오네. 얼마 안 되지만 노잣돈이라도 받게."',
+              text: '"먼 길 오느라 고생했네. 삼 년 전 왕실 탐험대가 북쪽 산의 잿빛 수도원으로 들어간 뒤 소식이 끊겼지. 그날 밤 수도원 정문이 저절로 잠기고 검은 사슬이 감겼다네.\n정문 열쇠는 문지기 수도사가 지녔는데, 그는 남서쪽 숲의 수도사 묘지에 묻혔지. 사슬은 평범한 쇠로는 끊을 수 없으니 대장장이와 의논해 보게. 얼마 안 되지만 노잣돈이라도 받게."',
               effects: [{ flag: 'quest' }, { gold: 30 }]
             },
-            again: { title: '장로 하르벤', text: '"수도사들은 침묵을 맹세했다고 들었네. 그 안에서 무엇을 보든 서두르지 말게."' }
+            again: { title: '장로 하르벤', text: '"열쇠는 남서쪽 숲의 수도사 묘지에, 사슬을 끊을 별빛 광석은 동쪽 옛 광산에 있을 걸세. 수도사들은 침묵을 맹세했다고 들었네. 그 안에서 무엇을 보든 서두르지 말게."' },
+            open: { title: '장로 하르벤', text: '"정문을 열었다니! 수도원은 다섯 층 아래까지 이어져 있다더군. 가장 깊은 곳의 제단을 조심하게."' }
           }
         }
       }
@@ -415,7 +463,7 @@ window.DUNGEON = {
           name: '대장장이', trigger: 'step', solid: true, npc: 'smith', ground: '_',
           start: [{ when: { flag: 'forged' }, page: 'after' }, { when: { has: 'starlight_ore' }, page: 'ore' }, { page: 'start' }],
           pages: {
-            start: { title: '대장장이', text: '"탐험대 대장의 검도 내가 벼렸지. 해골 병사는 마법에 약하다네.\n아, 동쪽 옛 광산에서 별빛 광석을 캐 오면 자네 검도 다시 벼려 주지. 돌 골렘이 지키고 있다지만."' },
+            start: { title: '대장장이', text: '"탐험대 대장의 검도 내가 벼렸지. 해골 병사는 마법에 약하다네.\n수도원 정문의 검은 사슬? 그건 별빛 광석으로 벼린 검이 아니면 못 끊어. 동쪽 옛 광산에서 광석을 캐 오게. 돌 골렘이 지키고 있다지만."' },
             ore: {
               title: '대장장이',
               text: '"이, 이건 별빛 광석이 아닌가! 이 정도면 로엔의 검을 제대로 벼릴 수 있겠어."',
@@ -424,7 +472,7 @@ window.DUNGEON = {
                 { label: '나중에 하겠다' }
               ]
             },
-            forged: { title: '대장장이', text: '망치 소리가 한참 울린 뒤, 로엔의 검날에 별빛 무늬가 떠올랐다.\n"자, 이제 해골쯤은 단칼일 걸세."' },
+            forged: { title: '대장장이', text: '망치 소리가 한참 울린 뒤, 로엔의 검날에 별빛 무늬가 떠올랐다.\n"자, 이 검이라면 수도원 정문의 검은 사슬도 끊을 수 있을 걸세."' },
             after: { title: '대장장이', text: '"그 검, 잘 쓰고 있나? 별빛 무늬가 흐려지면 언제든 들르게."' }
           }
         }
@@ -643,7 +691,270 @@ window.DUNGEON = {
     },
 
     b2: {
-      name: '지하 2층 · 제단',
+      name: '지하 2층 · 무덤방',
+      map: [
+        '############',
+        '#<...#.....#',
+        '#.##.#.###.#',
+        '#.#..+...#.#',
+        '#.#.####.#.#',
+        '#...#h...#.#',
+        '###.#.####.#',
+        '#t..#......#',
+        '#.###.####.#',
+        '#.....#e...#',
+        '#.#####.##>#',
+        '############'
+      ],
+      encounters: { rate: 0.1, table: ['skeleton', 'wisp', 'bone_knight', 'rat'] },
+      locks: {},
+      events: {
+        '<': {
+          name: '올라가는 계단', trigger: 'step', mark: 'stairs-up',
+          prop: { type: 'stairs-up' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '올라가는 계단',
+              text: '지하 1층 회랑으로 이어지는 계단이다.',
+              choices: [
+                { label: '올라간다', effects: [{ warp: { floor: 'b1', x: 14, y: 13, dir: 0 } }] },
+                { label: '머문다' }
+              ]
+            }
+          }
+        },
+        h: {
+          name: '성수 대야', trigger: 'step',
+          prop: { type: 'fountain' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '성수 대야',
+              text: '돌 대야에 맑은 물이 고여 있다. 수면에 촛불 빛이 어른거린다.',
+              choices: [
+                { label: '물을 마신다', next: 'drink', effects: [{ heal: 'all' }] },
+                { label: '지나간다' }
+              ]
+            },
+            drink: { title: '성수 대야', text: '차가운 성수가 몸을 씻어 내리자 상처가 아문다.' }
+          }
+        },
+        t: {
+          name: '이름 없는 석관', trigger: 'search', once: true,
+          prop: { type: 'bones', glow: true },
+          hint: '석관 뚜껑이 조금 어긋나 있다.',
+          start: 'start',
+          pages: { start: { title: '이름 없는 석관', text: '뚜껑을 밀어내자 수도복 자락 사이에서 금화 20닢이 굴러 나온다.', effects: [{ gold: 20 }, { done: true }] } }
+        },
+        e: {
+          name: '묘비의 글귀', trigger: 'search',
+          prop: { type: 'runes' },
+          hint: '바닥 돌판에 글씨가 새겨져 있다.',
+          start: 'start',
+          pages: { start: { title: '묘비의 글귀', text: '"여기 잠든 형제들은 끝까지 입을 열지 않았다. 아래층 서고의 열쇠는 사서 형제가 지녔다."' } }
+        },
+        '>': {
+          name: '내려가는 계단', trigger: 'step', mark: 'stairs-down',
+          prop: { type: 'stairs-down' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '내려가는 계단',
+              text: '더 깊은 곳에서 종이 넘어가는 소리가 들린다.',
+              choices: [
+                { label: '내려간다', effects: [{ warp: { floor: 'b3', x: 1, y: 1, dir: 1 } }] },
+                { label: '아직 머문다' }
+              ]
+            }
+          }
+        }
+      }
+    },
+
+    b3: {
+      name: '지하 3층 · 서고',
+      map: [
+        '##############',
+        '#<....#......#',
+        '#.###.#.####.#',
+        '#.#k#...#....#',
+        '#.#.#####.##.#',
+        '#...#.....#..#',
+        '###.#.###.#.##',
+        '#...#...#.#..#',
+        '#.#####.#.##.#',
+        '#.....#.#..#=#',
+        '#####.#.##.#.#',
+        '#h....#e...#.#',
+        '#.#####.##f#>#',
+        '##############'
+      ],
+      encounters: { rate: 0.1, table: ['bone_knight', 'wisp', 'skeleton', 'soul_flame'] },
+      locks: {
+        '=': { item: 'silver_key', locked: '책장 사이를 은빛 철창이 가로막고 있다. 작은 열쇠 구멍이 있다.', open: '은 열쇠로 철창을 열었다.' }
+      },
+      events: {
+        '<': {
+          name: '올라가는 계단', trigger: 'step', mark: 'stairs-up',
+          prop: { type: 'stairs-up' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '올라가는 계단',
+              text: '지하 2층 무덤방으로 이어지는 계단이다.',
+              choices: [
+                { label: '올라간다', effects: [{ warp: { floor: 'b2', x: 10, y: 9, dir: 0 } }] },
+                { label: '머문다' }
+              ]
+            }
+          }
+        },
+        k: {
+          name: '사서 수도사의 책상', trigger: 'step', once: true,
+          prop: { type: 'backpack', vanish: true, glow: true },
+          start: 'start',
+          pages: {
+            start: {
+              title: '사서 수도사의 책상',
+              text: '먼지 쌓인 책상 위에 펼쳐진 장부와 은 열쇠 하나가 놓여 있다.\n"침묵의 서약은 마지막 제단에서 시험받는다."',
+              choices: [{ label: '열쇠를 챙긴다', effects: [{ give: 'silver_key' }, { done: true }] }]
+            }
+          }
+        },
+        h: {
+          name: '잉크 샘', trigger: 'step',
+          prop: { type: 'fountain' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '잉크 샘',
+              text: '벽에 붙은 작은 샘에서 물이 똑똑 떨어진다. 사서들이 손을 씻던 곳이다.',
+              choices: [
+                { label: '물을 마신다', next: 'drink', effects: [{ heal: 'all' }] },
+                { label: '지나간다' }
+              ]
+            },
+            drink: { title: '잉크 샘', text: '물이 손끝부터 차갑게 스며들며 기운이 돌아온다.' }
+          }
+        },
+        e: {
+          name: '서고의 경고문', trigger: 'search',
+          prop: { type: 'runes' },
+          hint: '책장 옆 판자에 글씨가 있다.',
+          start: 'start',
+          pages: { start: { title: '서고의 경고문', text: '"이 아래는 종지기의 방. 바닥이 도는 곳을 조심하라."' } }
+        },
+        f: {
+          name: '회전 함정', trigger: 'step',
+          start: 'start',
+          pages: { start: { title: '덜컥!', text: '발밑의 바닥이 돌아간다. 방향 감각을 잃었다.', effects: [{ spin: true }] } }
+        },
+        '>': {
+          name: '내려가는 계단', trigger: 'step', mark: 'stairs-down',
+          prop: { type: 'stairs-down' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '내려가는 계단',
+              text: '아래에서 낮은 종소리가 울린다.',
+              choices: [
+                { label: '내려간다', effects: [{ warp: { floor: 'b4', x: 1, y: 1, dir: 1 } }] },
+                { label: '아직 머문다' }
+              ]
+            }
+          }
+        }
+      }
+    },
+
+    b4: {
+      name: '지하 4층 · 종지기의 방', music: 'b2',
+      map: [
+        '############',
+        '#<.....#...#',
+        '#.####.#.#.#',
+        '#.#..#...#.#',
+        '#.#.##.###.#',
+        '#...#..f...#',
+        '###.#.####.#',
+        '#c..#.#..#.#',
+        '#.###.#.##.#',
+        '#.....#h...#',
+        '#.#####.##>#',
+        '############'
+      ],
+      encounters: { rate: 0.11, table: ['bone_knight', 'soul_flame', 'soul_flame', 'skeleton'] },
+      locks: {},
+      events: {
+        '<': {
+          name: '올라가는 계단', trigger: 'step', mark: 'stairs-up',
+          prop: { type: 'stairs-up' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '올라가는 계단',
+              text: '지하 3층 서고로 이어지는 계단이다.',
+              choices: [
+                { label: '올라간다', effects: [{ warp: { floor: 'b3', x: 12, y: 11, dir: 0 } }] },
+                { label: '머문다' }
+              ]
+            }
+          }
+        },
+        c: {
+          name: '종지기의 유령', trigger: 'step',
+          prop: { type: 'ghost' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '종지기의 유령',
+              text: '깨진 종 옆에서 희미한 형체가 고개를 든다.\n"…제단은 하나만 묻는다. 우리가 평생 지킨 것을…"',
+              choices: [{ label: '고개를 숙인다' }]
+            }
+          }
+        },
+        f: {
+          name: '울리는 바닥', trigger: 'step', once: true,
+          start: 'start',
+          pages: { start: { title: '데엥—', text: '발밑에서 종이 울리자 머리가 울린다!', effects: [{ hp: -4 }, { done: true }] } }
+        },
+        h: {
+          name: '종지기의 물항아리', trigger: 'step',
+          prop: { type: 'fountain' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '종지기의 물항아리',
+              text: '깨진 종 아래 물항아리에 맑은 물이 남아 있다.',
+              choices: [
+                { label: '물을 마신다', next: 'drink', effects: [{ heal: 'all' }] },
+                { label: '지나간다' }
+              ]
+            },
+            drink: { title: '종지기의 물항아리', text: '물을 마시자 울리던 머리가 맑아진다.' }
+          }
+        },
+        '>': {
+          name: '내려가는 계단', trigger: 'step', mark: 'stairs-down',
+          prop: { type: 'stairs-down' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '내려가는 계단',
+              text: '가장 깊은 곳, 제단으로 이어지는 계단이다.',
+              choices: [
+                { label: '내려간다', effects: [{ warp: { floor: 'b5', x: 1, y: 1, dir: 1 } }] },
+                { label: '아직 머문다' }
+              ]
+            }
+          }
+        }
+      }
+    },
+
+    b5: {
+      name: '지하 5층 · 제단', music: 'b2',
       map: [
         '########',
         '#<.....#',
@@ -654,7 +965,7 @@ window.DUNGEON = {
         '#......#',
         '########'
       ],
-      encounters: { rate: 0.1, table: ['skeleton', 'wisp', 'skeleton'] },
+      encounters: { rate: 0.1, table: ['bone_knight', 'soul_flame', 'bone_knight'] },
       locks: {},
       events: {
         g: {
@@ -675,9 +986,9 @@ window.DUNGEON = {
           pages: {
             start: {
               title: '올라가는 계단',
-              text: '위층 회랑으로 이어지는 계단이다.',
+              text: '지하 4층으로 이어지는 계단이다.',
               choices: [
-                { label: '올라간다', effects: [{ warp: { floor: 'b1', x: 14, y: 13, dir: 0 } }] },
+                { label: '올라간다', effects: [{ warp: { floor: 'b4', x: 10, y: 9, dir: 0 } }] },
                 { label: '머문다' }
               ]
             }
@@ -707,6 +1018,177 @@ window.DUNGEON = {
               title: '봉인이 풀리다',
               text: '제단이 소리 없이 갈라지고, 그 아래 석실에 탐험대원들이 잠들어 있다.\n그들은 살아 있었다. 침묵의 서약 속에 갇힌 채로.',
               effects: [{ end: 'win' }]
+            }
+          }
+        }
+      }
+    },
+    // ----- 수도사 묘지 (들판 남서쪽 숲, 수도원 정문 열쇠가 있는 곳) -----
+    c1: {
+      name: '수도사 묘지 · 납골당', tint: 0xa0b898, fog: 0x050a06, music: 'crypt',
+      map: [
+        '##############',
+        '#x...#.......#',
+        '#.##.#.#####.#',
+        '#.#a.#.#h..#.#',
+        '#.####.#.#.#.#',
+        '#......+.#...#',
+        '####.###.#####',
+        '#e...#...#...#',
+        '#.##.#.###.#.#',
+        '#.#..#.....#.#',
+        '#.#.########.#',
+        '#.#....f...#=#',
+        '#.####.###.#>#',
+        '##############'
+      ],
+      encounters: { rate: 0.1, table: ['grave_rat', 'grave_rat', 'ghoul', 'shade'] },
+      locks: {
+        '=': { item: 'bone_key', locked: '해골 문양이 새겨진 철문이 잠겨 있다.', open: '뼈 열쇠를 꽂자 철문이 삐걱이며 열렸다.' }
+      },
+      events: {
+        x: {
+          name: '묘지 입구', trigger: 'step', mark: 'stairs-up',
+          prop: { type: 'stairs-up' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '묘지 입구',
+              text: '숲으로 올라가는 이끼 낀 계단이다.',
+              choices: [
+                { label: '밖으로 나간다', effects: [{ warp: { area: 'field', x: 10, y: 30, dir: 1 } }] },
+                { label: '머문다' }
+              ]
+            }
+          }
+        },
+        a: {
+          name: '열린 관', trigger: 'step', once: true,
+          prop: { type: 'bones', glow: true },
+          start: 'start',
+          pages: {
+            start: {
+              title: '열린 관',
+              text: '뚜껑이 부서진 관 속에 누운 유골이 뼈로 깎은 열쇠를 쥐고 있다.\n관 옆면에 글씨가 있다. "문지기 형제는 가장 깊은 곳에서 아직도 문을 지킨다."',
+              choices: [{ label: '열쇠를 챙긴다', effects: [{ give: 'bone_key' }, { done: true }] }]
+            }
+          }
+        },
+        h: {
+          name: '촛농 샘', trigger: 'step',
+          prop: { type: 'fountain' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '촛농 샘',
+              text: '녹아내린 촛농 사이로 맑은 물이 솟는 작은 샘이다.',
+              choices: [
+                { label: '물을 마신다', next: 'drink', effects: [{ heal: 'all' }] },
+                { label: '지나간다' }
+              ]
+            },
+            drink: { title: '촛농 샘', text: '미지근한 물인데도 몸이 따뜻해진다.' }
+          }
+        },
+        e: {
+          name: '묘비의 낙서', trigger: 'search',
+          prop: { type: 'runes' },
+          hint: '묘비 뒤쪽에 무언가 긁혀 있다.',
+          start: 'start',
+          pages: { start: { title: '묘비의 낙서', text: '"푸른 불은 마법으로 쫓아라. 구울은 느리지만 질기다."' } }
+        },
+        f: {
+          name: '무너진 무덤', trigger: 'step', once: true,
+          start: 'start',
+          pages: { start: { title: '쿵!', text: '발밑의 무덤이 꺼지며 뼈 무더기 속으로 미끄러졌다!', effects: [{ hp: -3 }, { done: true }] } }
+        },
+        '>': {
+          name: '묘지 아래로 내려가는 계단', trigger: 'step', mark: 'stairs-down',
+          prop: { type: 'stairs-down' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '묘지 아래로 내려가는 계단',
+              text: '철문 너머로 차가운 바람이 올라온다.',
+              choices: [
+                { label: '내려간다', effects: [{ warp: { floor: 'c2', x: 1, y: 1, dir: 1 } }] },
+                { label: '아직 머문다' }
+              ]
+            }
+          }
+        }
+      }
+    },
+
+    c2: {
+      name: '수도사 묘지 · 문지기의 방', tint: 0x9080b0, fog: 0x07040c, music: 'crypt',
+      map: [
+        '##########',
+        '#<.......#',
+        '#.######.#',
+        '#.#h...#.#',
+        '#.#.##.#.#',
+        '#...#..#.#',
+        '###.#.##.#',
+        '#...#....#',
+        '######g###',
+        '#....k...#',
+        '##########'
+      ],
+      encounters: { rate: 0.11, table: ['ghoul', 'shade', 'grave_rat'] },
+      locks: {},
+      events: {
+        '<': {
+          name: '올라가는 계단', trigger: 'step', mark: 'stairs-up',
+          prop: { type: 'stairs-up' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '올라가는 계단',
+              text: '납골당으로 이어지는 계단이다.',
+              choices: [
+                { label: '올라간다', effects: [{ warp: { floor: 'c1', x: 12, y: 11, dir: 0 } }] },
+                { label: '머문다' }
+              ]
+            }
+          }
+        },
+        h: {
+          name: '정화의 대야', trigger: 'step',
+          prop: { type: 'fountain' },
+          start: 'start',
+          pages: {
+            start: {
+              title: '정화의 대야',
+              text: '은으로 테를 두른 대야에 물이 가득하다. 이곳만은 공기가 맑다.',
+              choices: [
+                { label: '물을 마신다', next: 'drink', effects: [{ heal: 'all' }] },
+                { label: '지나간다' }
+              ]
+            },
+            drink: { title: '정화의 대야', text: '몸에 붙은 묘지의 냉기가 씻겨 나간다.' }
+          }
+        },
+        g: {
+          name: '타락한 묘지기', trigger: 'step', once: true,
+          start: 'start',
+          pages: {
+            start: {
+              title: '타락한 묘지기',
+              text: '녹슨 갑옷을 입은 거구가 쇠 열쇠 꾸러미를 흔들며 일어선다. 투구 틈에서 초록 불빛이 새어 나온다.\n"…문은… 열리지… 않는다…"',
+              choices: [{ label: '맞서 싸운다', effects: [{ battle: 'gravekeeper' }] }]
+            }
+          }
+        },
+        k: {
+          name: '문지기의 열쇠', trigger: 'step', once: true,
+          prop: { type: 'backpack', vanish: true, glow: true },
+          start: 'start',
+          pages: {
+            start: {
+              title: '문지기의 열쇠',
+              text: '쓰러진 묘지기 뒤편, 돌 받침 위에 커다란 쇠 열쇠가 놓여 있다. 손잡이에 수도원 문장이 새겨져 있다.',
+              choices: [{ label: '열쇠를 챙긴다', effects: [{ give: 'abbey_key' }, { done: true }] }]
             }
           }
         }
