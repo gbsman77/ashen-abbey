@@ -944,10 +944,10 @@
   }
   // 적 그림 종류(sprite)마다 3D 화면 속 크기·높이·거리, 기본 빛깔. glow 는 빛나는 적
   const FOE_LOOK = {
-    rat: { scale: 1.1, y: 0.53, dist: 2.1, tint: 0xc8b8a8 },
-    skeleton: { scale: 2.0, y: 1.03, dist: 2.4, tint: 0xd8ccb8 },
+    rat: { scale: 1.1, y: 0.53, dist: 2.1, tint: 0xffffff },
+    skeleton: { scale: 2.0, y: 1.03, dist: 2.4, tint: 0xffffff },
     wisp: { scale: 1.4, y: 1.2, dist: 2.2, tint: 0xffffff, glow: true },
-    guardian: { scale: 2.2, y: 1.1, dist: 2.6, tint: 0xb8b0b0 },
+    guardian: { scale: 2.2, y: 1.1, dist: 2.6, tint: 0xffffff },
     slime: { scale: 1.0, y: 0.48, dist: 2.1, tint: 0xffffff },
     horn_rabbit: { scale: 1.0, y: 0.48, dist: 2.1, tint: 0xffffff },
     wolf: { scale: 1.4, y: 0.68, dist: 2.2, tint: 0xffffff },
