@@ -8,6 +8,7 @@
 - `engine.js` 이동, 3D 렌더링, 미니맵, 사건 처리 (콘텐츠 없음). 주소 끝에 `#debug`를 붙이면 콘솔에서 `dungeon.warp(층 또는 지역, x, y, 방향)` 사용 가능 (지역: field, town)
 - `data.js` 맵·아이템·사건 데이터. 새 층이나 사건은 여기만 고치면 된다. 기호와 사건 형식은 파일 맨 위 주석 참고.
 
+무기: data.js `weapons` 표(직업·공격·주문 위력·값). 대장간 대장장이가 판다. 아이콘은 `weapons/<id>.png`를 넣으면 교체(없으면 코드 도트), 요청서 weapons/GEMINI_무기_요청서.md.
 적 그림: `monsters/` 폴더에 `<sprite>.png`를 넣으면 교체된다. 규격은 monsters/README.md.
 지상 타일·사람 그림: `world/` 폴더. 규격은 world/README.md.
 로컬 실행: `index.html`을 브라우저로 열기.

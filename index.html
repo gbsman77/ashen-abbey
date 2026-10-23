@@ -182,6 +182,13 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
 .bar i { display: block; height: 100%; background: var(--moss); transition: width 0.3s; }
 .bar i.low { background: var(--blood); }
 .pm-num { display: flex; justify-content: space-between; font: 400 16px/1 var(--f-num); color: var(--ash); font-variant-numeric: tabular-nums; }
+/* 무기: 파티 칸에 한 줄, 폰 세로에선 조작 패드 좌우에 그림으로 */
+.pm-wpn { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--bone); min-width: 0; }
+.pm-wpn img { width: 18px; height: 18px; image-rendering: pixelated; flex: none; }
+.pm-wpn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-wpn em { font-style: normal; color: var(--torch); margin-left: auto; font: 400 15px/1 var(--f-num); white-space: nowrap; }
+.choice.off { opacity: 0.45; }
+.equip { display: none; }
 
 /* 전투 창 */
 .battle {
@@ -260,6 +267,18 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
   .pad button kbd { display: none; }
   .pad.art { width: min(268px, 100%); }
   .pad button.art { min-height: 0; }
+  /* 패드 좌우 빈자리: 왼쪽 로엔·세라, 오른쪽 카일·금화 */
+  .equip { grid-area: pad; display: flex; justify-content: space-between; pointer-events: none; z-index: 1; }
+  .eqSide { width: calc((100% - 268px) / 2 - 6px); display: grid; grid-template-rows: 1fr 1fr; gap: 6px; }
+  .eqSlot {
+    pointer-events: auto; display: grid; place-items: center; align-content: center; gap: 1px; padding: 2px 0;
+    border: 1px solid var(--stone); background: var(--panel); color: var(--bone); min-width: 0; font: inherit;
+  }
+  .eqSlot img { width: min(36px, 100%); aspect-ratio: 1; image-rendering: pixelated; }
+  .eqSlot b { font: 400 13px/1 var(--f-num); color: var(--torch); white-space: nowrap; }
+  .eqSlot small { font-size: 10px; line-height: 1; color: var(--ash); white-space: nowrap; overflow: hidden; max-width: 100%; }
+  .eqSlot.coin b { font-size: 15px; }
+  .pm-wpn { display: none; }
 
   /* 사건 창: 작은 화면 위에 겹치면 글이 잘리므로 아래쪽 시트로 띄운다 */
   .event, .viewFrame.framed .event {
@@ -321,6 +340,8 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
   .pad button.art { min-height: 0; }
   .pad button kbd { display: none; }
   .event, .viewFrame.framed .event { max-height: 86%; }
+  .equip { display: none; }
+  .pm-wpn { display: flex; }
   #bgmControl input { display: none; }
   .choice { min-height: 44px; align-items: center; }
 }
@@ -335,6 +356,8 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
   .sys button { min-height: 40px; }
 }
 @media (max-width: 360px) {
+  .equip { display: none; }  /* 패드 옆에 자리가 없으면 파티 칸에 무기 줄을 보인다 */
+  .pm-wpn { display: flex; }
   .pm-num span + span { display: none; }  /* 아주 좁으면 MP 숫자는 숨긴다 */
 }
 /* 시작 화면: ui/title_bg.png 가 있으면 배경으로 깔고, 없으면 어둠 속 안개만 */
@@ -440,6 +463,10 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
         <button type="button" data-act="sl"><kbd>Q</kbd>좌로 이동</button>
         <button type="button" data-act="back"><kbd>S</kbd>후퇴</button>
         <button type="button" data-act="sr"><kbd>E</kbd>우로 이동</button>
+      </div>
+      <div class="equip" id="equip" aria-label="장비">
+        <div class="eqSide" id="eqL"></div>
+        <div class="eqSide" id="eqR"></div>
       </div>
       </div>
     </div>

@@ -34,7 +34,7 @@
       party: D.party.members.map((m) => ({
         name: m.name, cls: m.cls, lv: 1, exp: 0,
         hp: m.hp, maxHp: m.hp, mp: m.mp, maxMp: m.mp, atk: m.atk, def: m.def,
-        grow: m.grow, spells: m.spells.slice()
+        grow: m.grow, spells: m.spells.slice(), weapon: m.weapon
       })),
       gold: st.gold || 0, steps: 0, calm: 0, battle: null,
       items: [], flags: {}, done: {}, unlocked: {}, seen: {},
@@ -42,6 +42,11 @@
     };
   }
   const alive = () => S.party.filter((m) => m.hp > 0);
+  // 무기 (data.js weapons): 공격력은 맨몸 + 무기, 주문 위력은 무기의 mag 만큼 더 세다
+  const WEAPONS = D.weapons || {};
+  const weaponOf = (m) => WEAPONS[m.weapon] || null;
+  const atkOf = (m) => m.atk + ((weaponOf(m) || {}).atk || 0);
+  const magOf = (m) => (weaponOf(m) || {}).mag || 0;
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const roll = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
   const floor = () => D.floors[S.floor];
@@ -180,8 +185,64 @@
     if (!dialog) return;
     if (c.effects) applyEffects(c.effects);
     if (!dialog) return;
+    if (c.shop) { dialog.back = dialog.pageId; showShop(); return; }
     if (c.next) showPage(c.next);
     else closeEvent();
+  }
+
+  // ---------- 무기 상점 (대장간) ----------
+  // 누구의 무기를 살지 고른 뒤, 지금 무기보다 좋은 것만 보여 준다. 쓰던 무기는 값의 절반에 사 준다
+  const wpScore = (w) => (w ? (w.atk || 0) + (w.mag || 0) : -1);
+  const wpStat = (w) => '공격 +' + (w.atk || 0) + (w.mag ? ' · 주문 +' + w.mag : '');
+  function shopButtons(list) {
+    const box = $('evChoices');
+    box.textContent = '';
+    list.forEach(([label, fn, off], i) => {
+      const b = document.createElement('button');
+      b.className = 'choice';
+      b.innerHTML = '<span class="num">' + (i + 1) + '</span>';
+      b.appendChild(document.createTextNode(label));
+      if (off) b.classList.add('off');
+      b.addEventListener('click', fn);
+      box.appendChild(b);
+    });
+    $('event').hidden = false;
+    box.firstChild.focus({ preventScroll: true });
+  }
+  function shopBack() { const id = dialog.back; if (id && dialog.ev.pages[id]) showPage(id); else closeEvent(); }
+  function showShop(msg) {
+    $('evTitle').textContent = '대장간 · 무기';
+    $('evText').textContent = (msg ? msg + '\n' : '') + '누구의 무기를 고를까? (금화 ' + S.gold + '닢)';
+    shopButtons(S.party.map((m, i) => {
+      const w = weaponOf(m);
+      return [m.name + ' (' + m.cls + ') · ' + (w ? w.name : '맨손'), () => showShopFor(i)];
+    }).concat([['돌아간다', shopBack]]));
+  }
+  function showShopFor(i, msg) {
+    const m = S.party[i], cur = weaponOf(m);
+    const back = cur && cur.price ? Math.floor(cur.price / 2) : 0;
+    const list = Object.keys(WEAPONS).filter((id) => {
+      const w = WEAPONS[id];
+      return w.price && w.cls === m.cls && wpScore(w) > wpScore(cur);
+    });
+    $('evTitle').textContent = '대장간 · ' + m.name + '의 무기';
+    $('evText').textContent = (msg ? msg + '\n' : '') + '지금: ' + (cur ? cur.name + ' (' + wpStat(cur) + ')' : '맨손') +
+      (back ? ' · 넘기면 ' + back + '닢' : '') + '\n금화 ' + S.gold + '닢' +
+      (list.length ? '' : '\n"' + m.name + '에게 이보다 나은 건 내 가게에 없네."');
+    shopButtons(list.map((id) => {
+      const w = WEAPONS[id], cost = w.price - back;
+      return [w.name + ' · ' + wpStat(w) + ' · ' + w.price + '닢', () => buyWeapon(i, id), S.gold < cost];
+    }).concat([['다른 사람', () => showShop()], ['돌아간다', shopBack]]));
+  }
+  function buyWeapon(i, id) {
+    const m = S.party[i], w = WEAPONS[id], cur = weaponOf(m);
+    const cost = w.price - (cur && cur.price ? Math.floor(cur.price / 2) : 0);
+    if (S.gold < cost) { showShopFor(i, '"금화가 ' + (cost - S.gold) + '닢 모자라는군. ' + w.desc + '"'); return; }
+    S.gold -= w.price;
+    applyEffects([{ equip: { member: i, weapon: id } }]);
+    sfx('slash');
+    updateStatus();
+    showShop('"' + w.desc + '"\n' + m.name + '이(가) ' + w.name + '을(를) 쥐었다! (' + wpStat(w) + ')');
   }
 
   function closeEvent() {
@@ -217,6 +278,12 @@
         if (e.stat.hp) { m.maxHp += e.stat.hp; m.hp += e.stat.hp; up.push('최대 체력 +' + e.stat.hp); }
         if (e.stat.mp) { m.maxMp += e.stat.mp; m.mp += e.stat.mp; up.push('최대 마력 +' + e.stat.mp); }
         log(m.name + ': ' + up.join(', '), 'good');
+      }
+      if (e.equip) { // { member, weapon } 쓰던 무기는 값의 절반에 사 준다
+        const m = S.party[e.equip.member || 0], old = weaponOf(m), w = WEAPONS[e.equip.weapon];
+        if (old && old.price) { const back = Math.floor(old.price / 2); S.gold += back; log('쓰던 ' + old.name + '을(를) ' + back + '닢에 넘겼다.'); }
+        m.weapon = e.equip.weapon;
+        log(m.name + '이(가) ' + w.name + '을(를) 쥐었다.', 'good');
       }
       if (e.save) writeSave();
       if (e.heal) {
@@ -538,7 +605,8 @@
   }
 
   // 주문의 힘은 시전자 레벨만큼 커진다 (Lv1 그대로, 레벨마다 +1)
-  const spellRoll = (m, sp) => roll(sp.power[0], sp.power[1]) + (m.lv - 1);
+  // 무기의 주문 위력(mag)만큼 더 세다
+  const spellRoll = (m, sp) => roll(sp.power[0], sp.power[1]) + (m.lv - 1) + magOf(m);
 
   const wait = (ms) => new Promise((r) => setTimeout(r, reduceMotion ? Math.min(ms, 120) : ms));
   const liveFoes = () => S.battle.foes.map((f, i) => [f, i]).filter(([f]) => f.hp > 0);
@@ -609,7 +677,7 @@
       lunge(-1);
       if (Math.random() > 0.88) { sfx('miss'); blog(m.name + '의 공격이 빗나갔다.'); await wait(550); return; }
       const crit = Math.random() < 0.1;
-      const dmg = Math.max(1, roll(m.atk, m.atk + 4) - mon.def) * (crit ? 2 : 1);
+      const dmg = Math.max(1, roll(atkOf(m), atkOf(m) + 4) - mon.def) * (crit ? 2 : 1);
       hitFoe(i, dmg);
       sfx(crit ? 'crit' : 'slash');
       blog(m.name + '의 공격! ' + mon.name + '에게 ' + dmg + '의 피해' + (crit ? ' (급소!)' : '') + (f.hp <= 0 ? ', 쓰러뜨렸다.' : '.'), crit ? 'good' : '');
@@ -2335,6 +2403,78 @@
     if (A.frame) drawFrame9(A.frame, W, H);
   }
 
+  // ---------- 무기 아이콘 ----------
+  // weapons/<id>.png 그림이 있으면 그 그림, 없으면 16칸 도트로 코드가 그린다 (검·철퇴·지팡이)
+  const WP_ART = {};
+  const WP_DOT = {};
+  for (const id of Object.keys(WEAPONS)) {
+    const img = new Image();
+    img.onload = () => { WP_ART[id] = img.src; if (S) updateStatus(); };
+    img.src = 'weapons/' + id + '.png';
+  }
+  function shade(hex, k) {
+    const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.max(0, Math.min(255, Math.round(k > 1 ? v + (255 - v) * (k - 1) : v * k))));
+    return 'rgb(' + c.join(',') + ')';
+  }
+  function weaponIcon(id) {
+    if (WP_ART[id]) return WP_ART[id];
+    if (WP_DOT[id]) return WP_DOT[id];
+    const w = WEAPONS[id], N = 16, px = {};
+    const put = (x, y, c) => { if (x >= 0 && y >= 0 && x < N && y < N) px[x + ',' + y] = c; };
+    const hi = shade(w.color, 1.45), mid = shade(w.color, 1), lo = shade(w.color, 0.62);
+    const wood = '#7a4a26', woodHi = '#a8703c', gold = '#e0b040', goldLo = '#9a6a1a';
+    if (w.kind === 'sword') {
+      for (let t = 0; t < 9; t++) { put(5 + t, 10 - t, hi); put(6 + t, 10 - t, mid); put(6 + t, 11 - t, lo); }
+      put(14, 1, hi);
+      [[2, 9], [3, 10], [4, 11], [5, 12], [6, 13]].forEach(([x, y], i) => put(x, y, i < 2 ? gold : goldLo));
+      put(3, 12, wood); put(2, 13, woodHi); put(1, 14, gold);
+    } else if (w.kind === 'mace') {
+      for (let t = 0; t < 8; t++) { put(2 + t, 14 - t, t % 2 ? wood : woodHi); put(3 + t, 14 - t, wood); }
+      for (let y = 3; y <= 7; y++) for (let x = 9; x <= 13; x++) if (!((x === 9 || x === 13) && (y === 3 || y === 7))) put(x, y, x + y < 15 ? hi : x + y > 17 ? lo : mid);
+      [[11, 1], [11, 2], [15, 5], [14, 5], [7, 5], [8, 5], [11, 9], [11, 8]].forEach(([x, y]) => put(x, y, mid));
+    } else {
+      for (let t = 0; t < 11; t++) { put(1 + t, 15 - t, t % 3 ? wood : woodHi); put(2 + t, 15 - t, wood); }
+      put(10, 2, wood); put(14, 6, wood); put(13, 1, wood);
+      for (let y = 2; y <= 5; y++) for (let x = 11; x <= 14; x++) if (!((x === 11 || x === 14) && (y === 2 || y === 5))) put(x, y, x + y < 15 ? hi : x + y > 16 ? lo : mid);
+      put(12, 3, '#ffffff');
+    }
+    const cv = document.createElement('canvas'), Z = 3;
+    cv.width = cv.height = N * Z;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#1a0b07'; // 1칸 짙은 갈색 테두리
+    for (const k in px) {
+      const [x, y] = k.split(',').map(Number);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!px[(x + dx) + ',' + (y + dy)]) g.fillRect((x + dx) * Z, (y + dy) * Z, Z, Z);
+    }
+    for (const k in px) { const [x, y] = k.split(',').map(Number); g.fillStyle = px[k]; g.fillRect(x * Z, y * Z, Z, Z); }
+    return (WP_DOT[id] = cv.toDataURL());
+  }
+  function weaponSay(m) {
+    const w = weaponOf(m);
+    log(w ? m.name + ' · ' + w.name + ' (' + wpStat(w) + ') — ' + w.desc : m.name + '은(는) 맨손이다.');
+  }
+  function updateEquip() {
+    const L = $('eqL'), R = $('eqR');
+    if (!L) return;
+    const slot = (m) => {
+      const b = document.createElement('button'), w = weaponOf(m);
+      b.type = 'button'; b.className = 'eqSlot';
+      b.title = m.name + ': ' + (w ? w.name : '맨손');
+      if (w) { const img = new Image(); img.alt = w.name; img.src = weaponIcon(m.weapon); b.append(img); }
+      const n = document.createElement('b'); n.textContent = '공' + atkOf(m);
+      const t = document.createElement('small'); t.textContent = m.name;
+      b.append(n, t);
+      b.addEventListener('click', () => weaponSay(m));
+      return b;
+    };
+    const coin = document.createElement('div');
+    coin.className = 'eqSlot coin';
+    coin.innerHTML = '<small>금화</small><b></b>';
+    coin.querySelector('b').textContent = S.gold;
+    L.replaceChildren(slot(S.party[0]), slot(S.party[1]));
+    R.replaceChildren(slot(S.party[2]), coin);
+  }
+
   // ---------- UI ----------
   const CLASS_GLYPH = { '전사': '⚔\uFE0E', '사제': '✚\uFE0E', '마법사': '✦\uFE0E' };
   function updateStatus() {
@@ -2364,8 +2504,19 @@
       li.querySelector('b').textContent = m.name;
       li.querySelector('.cls').textContent = m.cls;
       li.querySelector('.lv').textContent = 'Lv ' + m.lv;
+      const w = weaponOf(m);
+      if (w) { // 무기 한 줄: 그림 · 이름 · 공격력 (폰 세로에선 패드 옆에 따로 보여서 숨긴다)
+        const row = document.createElement('div');
+        row.className = 'pm-wpn';
+        const img = new Image(); img.alt = ''; img.src = weaponIcon(m.weapon);
+        const n = document.createElement('span'); n.textContent = w.name;
+        const a = document.createElement('em'); a.textContent = '공' + atkOf(m) + (magOf(m) ? ' 주+' + magOf(m) : '');
+        row.append(img, n, a);
+        li.querySelector('.pm-info').append(row);
+      }
       ul.appendChild(li);
     });
+    updateEquip();
     const inv = $('inventory');
     inv.textContent = '';
     if (!S.items.length) {
@@ -2411,6 +2562,12 @@
   }
   function startGame(saved) {
     S = saved && saved.floor && saved.party ? saved : newState();
+    S.party.forEach((m, i) => { // 무기가 생기기 전의 기록: 처음 무기를 쥐여 주고, 대장간에서 벼린 +3 은 별빛 검으로 바꾼다
+      if (m.weapon !== undefined) return;
+      const base = D.party.members[i] || {};
+      m.weapon = base.weapon || null;
+      if (i === 0) { m.atk -= 1; if (S.flags && S.flags.forged) { m.atk -= 3; m.weapon = 'starlight_sword'; } }
+    });
     if (!S.mode) { // 지상이 생기기 전의 기록은 던전 안에서 이어 간다
       Object.assign(S, { mode: 'dungeon', area: 'field', wx: 27, wy: 4, wdir: 2 });
     }

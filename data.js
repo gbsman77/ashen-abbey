@@ -27,6 +27,8 @@
 //                {heal:'all'} 파티 전원 체력·마력 회복, {battle:'몬스터 id'} 고정 전투 (이기면 사건 완료)
 //                {warp:{area,x,y,dir}} 지상(필드·마을)으로 이동, {gold:+-n} 금화, {save:true} 기록
 //                {stat:{member,atk,def,hp,mp}} 파티원(member 번째, 0부터) 능력치를 영구히 올림
+//                {equip:{member,weapon}} 파티원에게 무기를 쥐여 준다 (쓰던 무기는 사라진다)
+// 선택지(choice)에 shop:true 를 붙이면 무기 상점(weapons 표에서 price 가 있는 것)을 연다
 // 조건(when) 추가: { gold: n } 금화 n 이상 / { nogold: n } 금화 n 미만
 //   hp 효과는 살아 있는 파티원 한 명에게 무작위로 적용된다.
 //
@@ -52,15 +54,34 @@ window.DUNGEON = {
   party: {
     name: '탐험대',
     members: [
-      { name: '로엔', cls: '전사',   face: 'warrior', hp: 32, mp: 0,  atk: 7, def: 3, grow: { hp: 6, mp: 0 }, spells: [] },
-      { name: '세라', cls: '사제',   face: 'priest',  hp: 22, mp: 8,  atk: 4, def: 2, grow: { hp: 4, mp: 2 }, spells: ['heal'] },
-      { name: '카일', cls: '마법사', face: 'mage',    hp: 17, mp: 10, atk: 3, def: 1, grow: { hp: 3, mp: 3 }, spells: ['fire'] }
+      { name: '로엔', cls: '전사',   face: 'warrior', hp: 32, mp: 0,  atk: 6, def: 3, grow: { hp: 6, mp: 0 }, spells: [], weapon: 'rusty_sword' },
+      { name: '세라', cls: '사제',   face: 'priest',  hp: 22, mp: 8,  atk: 4, def: 2, grow: { hp: 4, mp: 2 }, spells: ['heal'], weapon: 'pilgrim_staff' },
+      { name: '카일', cls: '마법사', face: 'mage',    hp: 17, mp: 10, atk: 3, def: 1, grow: { hp: 3, mp: 3 }, spells: ['fire'], weapon: 'apprentice_wand' }
     ]
   },
 
   spells: {
     heal: { name: '치유', mp: 2, target: 'ally', power: [10, 16] },
     fire: { name: '화염', mp: 3, target: 'all',  power: [7, 12] }
+  },
+
+  // 무기. cls 그 직업만 쓸 수 있다. atk 공격력에 더함, mag 주문(치유·화염) 위력에 더함
+  //   price 가 있으면 대장간에서 판다 (쓰던 무기는 값의 절반에 사 준다). 없으면 처음 무기거나 이야기로만 얻는다
+  //   kind: sword | mace | staff 아이콘 모양, color 날·머리 빛깔. weapons/<id>.png 그림이 있으면 그 그림을 쓴다
+  //   가격은 몬스터 난이도에 맞췄다: 필드(~180닢 모임)→1단계, 광산(~550)→2단계, 묘지(~1100)→3단계
+  weapons: {
+    rusty_sword:     { name: '녹슨 검',       cls: '전사',   kind: 'sword', color: '#9a7a5a', atk: 1, desc: '탐험을 떠나며 챙긴 낡은 검.' },
+    bronze_sword:    { name: '청동 검',       cls: '전사',   kind: 'sword', color: '#d08a3a', atk: 3, price: 60,  desc: '대장장이가 마을 경비용으로 벼린 튼튼한 검.' },
+    steel_sword:     { name: '강철 검',       cls: '전사',   kind: 'sword', color: '#c8d2e0', atk: 5, price: 220, desc: '잘 담금질한 강철 검. 자갈 골렘의 돌껍질도 벤다.' },
+    starlight_sword: { name: '별빛 검',       cls: '전사',   kind: 'sword', color: '#8fe4ff', atk: 8, desc: '별빛 광석으로 다시 벼린 검. 수도원 정문의 검은 사슬도 끊는다.' },
+    pilgrim_staff:   { name: '순례자의 지팡이', cls: '사제',  kind: 'staff', color: '#d8c8a0', atk: 0, mag: 0, desc: '성당에서 받은 소박한 나무 지팡이.' },
+    iron_mace:       { name: '쇠 철퇴',       cls: '사제',   kind: 'mace',  color: '#a0a6b0', atk: 2, mag: 1, price: 70,  desc: '사제도 들 수 있는 가벼운 철퇴. 축복이 깃들어 있다.' },
+    blessed_mace:    { name: '축복의 철퇴',   cls: '사제',   kind: 'mace',  color: '#e8c860', atk: 3, mag: 3, price: 280, desc: '신부님이 성수로 씻어 준 철퇴. 치유의 빛이 더 밝아진다.' },
+    saint_scepter:   { name: '성녀의 홀',     cls: '사제',   kind: 'mace',  color: '#fff0b8', atk: 4, mag: 5, price: 640, desc: '옛 성녀가 쓰던 은빛 홀. 망자에게 두려운 빛을 낸다.' },
+    apprentice_wand: { name: '견습 지팡이',   cls: '마법사', kind: 'staff', color: '#a888e0', atk: 0, mag: 0, desc: '마법 학교에서 받은 첫 지팡이.' },
+    oak_staff:       { name: '떡갈나무 지팡이', cls: '마법사', kind: 'staff', color: '#78d070', atk: 1, mag: 2, price: 80,  desc: '숲 떡갈나무로 깎은 지팡이. 불씨가 잘 붙는다.' },
+    crystal_staff:   { name: '수정 지팡이',   cls: '마법사', kind: 'staff', color: '#a8e4ff', atk: 1, mag: 4, price: 300, desc: '광산 수정을 박은 지팡이. 화염이 한층 거세진다.' },
+    ember_rod:       { name: '불씨의 홀',     cls: '마법사', kind: 'staff', color: '#ff7a3a', atk: 2, mag: 7, price: 700, desc: '꺼지지 않는 불씨를 품은 홀. 잿빛 용의 비늘도 태운다.' }
   },
 
   monsters: {
@@ -314,7 +335,7 @@ window.DUNGEON = {
         c: { name: '아이', trigger: 'step', solid: true, npc: 'child', ground: '.', wander: 2, start: 'start', pages: { start: { title: '아이', text: '"수도원 우물에 손을 넣으면 뭔가가 문대! 그리고 남서쪽 숲 묘지에는 밤마다 푸른 불이 떠다닌대."' } } },
         d: { name: '꼬마', trigger: 'step', solid: true, npc: 'child', ground: '.', wander: 2, start: 'start', pages: { start: { title: '꼬마', text: '"농부 아저씨네 집 구석에 상자가 있는데, 아저씨는 맨날 잊어버려!"' } } },
         m: { name: '나그네', trigger: 'step', solid: true, npc: 'traveler', ground: 'p', wander: 1, start: 'start', pages: { start: { title: '나그네', text: '"동쪽 다리를 건너면 북쪽 산으로 길이 이어지지. 수도원 앞에서 다쳤다면 무리하지 말고 돌아와 여관에서 쉬게."' } } },
-        i: { name: '장사꾼', trigger: 'step', solid: true, npc: 'merchant', ground: '.', start: 'start', pages: { start: { title: '장사꾼', text: '"물건은 탐험대가 떠나기 전에 몽땅 사 갔다오. 대신 소문 하나 공짜로 주지. 수도원은 지하 5층까지 있는데, 3층 서고는 은 열쇠로 잠겨 있다더군."' } } },
+        i: { name: '장사꾼', trigger: 'step', solid: true, npc: 'merchant', ground: '.', start: 'start', pages: { start: { title: '장사꾼', text: '"물건은 탐험대가 떠나기 전에 몽땅 사 갔다오. 무기라면 남쪽 대장간에 가 보게, 대장장이가 직접 벼린 걸 팔지. 소문 하나 공짜로 주자면, 수도원은 지하 5층까지 있는데, 3층 서고는 은 열쇠로 잠겨 있다더군."' } } },
         x: { name: '빨래하던 아주머니', trigger: 'step', solid: true, npc: 'woman', ground: ':', wander: 2, start: 'start', pages: { start: { title: '빨래하던 아주머니', text: '"성당 신부님께 가면 여정을 기록해 주신다우. 먼 길 떠나기 전엔 꼭 들르구려."' } } },
         z: { name: '농부', trigger: 'step', solid: true, npc: 'farmer', ground: 'y', wander: 1, start: 'start', pages: { start: { title: '농부', text: '"올해 감자는 알이 굵어. 그나저나 우리 집 상자에 뭘 넣어 뒀더라…"' } } }
       }
@@ -474,17 +495,25 @@ window.DUNGEON = {
           name: '대장장이', trigger: 'step', solid: true, npc: 'smith', ground: '_',
           start: [{ when: { flag: 'forged' }, page: 'after' }, { when: { has: 'starlight_ore' }, page: 'ore' }, { page: 'start' }],
           pages: {
-            start: { title: '대장장이', text: '"탐험대 대장의 검도 내가 벼렸지. 골렘은 돌덩이라 칼보다 마법이 잘 듣는다네.\n수도원 정문의 검은 사슬? 그건 별빛 광석으로 벼린 검이 아니면 못 끊어. 동쪽 옛 광산에서 광석을 캐 오게. 돌 골렘이 지키고 있다지만."' },
+            start: {
+              title: '대장장이', text: '"어서 오게. 탐험대 대장의 검도 내가 벼렸지. 금화만 있으면 셋 다 손에 맞는 무기를 골라 주겠네."',
+              choices: [{ label: '무기를 산다', shop: true }, { label: '이야기를 듣는다', next: 'talk' }, { label: '그만둔다' }]
+            },
+            talk: { title: '대장장이', text: '"골렘은 돌덩이라 칼보다 마법이 잘 듣는다네.\n수도원 정문의 검은 사슬? 그건 별빛 광석으로 벼린 검이 아니면 못 끊어. 동쪽 옛 광산에서 광석을 캐 오게. 돌 골렘이 지키고 있다지만."' },
             ore: {
               title: '대장장이',
               text: '"이, 이건 별빛 광석이 아닌가! 이 정도면 로엔의 검을 제대로 벼릴 수 있겠어."',
               choices: [
-                { label: '검을 벼려 달라고 한다', next: 'forged', effects: [{ take: 'starlight_ore' }, { stat: { member: 0, atk: 3 } }, { flag: 'forged' }] },
+                { label: '검을 벼려 달라고 한다', next: 'forged', effects: [{ take: 'starlight_ore' }, { equip: { member: 0, weapon: 'starlight_sword' } }, { flag: 'forged' }] },
+                { label: '무기를 산다', shop: true },
                 { label: '나중에 하겠다' }
               ]
             },
-            forged: { title: '대장장이', text: '망치 소리가 한참 울린 뒤, 로엔의 검날에 별빛 무늬가 떠올랐다.\n"자, 이 검이라면 수도원 정문의 검은 사슬도 끊을 수 있을 걸세."' },
-            after: { title: '대장장이', text: '"그 검, 잘 쓰고 있나? 별빛 무늬가 흐려지면 언제든 들르게."' }
+            forged: { title: '대장장이', text: '로엔의 검을 녹여 광석과 함께 다시 벼리는 망치 소리가 한참 울렸다. 검날에 별빛 무늬가 떠올랐다. (별빛 검: 공격력 +8)\n"자, 이 검이라면 수도원 정문의 검은 사슬도 끊을 수 있을 걸세."' },
+            after: {
+              title: '대장장이', text: '"그 검, 잘 쓰고 있나? 별빛 무늬가 흐려지면 언제든 들르게. 동료들 무기는 아직 더 좋은 게 있다네."',
+              choices: [{ label: '무기를 산다', shop: true }, { label: '그만둔다' }]
+            }
           }
         }
       }
