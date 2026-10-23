@@ -17,7 +17,9 @@
       'transform:translate(-50%,-50%);box-shadow:0 0 0 300vmax #000';
     card = document.createElement('div');
     card.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;' +
-      'gap:.5em;color:#e8dcc0;text-align:center;opacity:0;font-family:inherit;text-shadow:0 2px 8px #000;padding:0 12%';
+      'gap:.5em;color:#e8dcc0;text-align:center;opacity:0;text-shadow:0 2px 0 #000,0 0 18px rgba(233,162,59,.3);padding:0 12%;' +
+      // 시작 화면 제목과 같은 명조체 (한글 글꼴이 없는 VT323·고딕코딩 대신)
+      "font-family:var(--f-display,'Nanum Myeongjo','Batang',serif);word-break:keep-all;text-wrap:balance";
     el.append(hole, card);
     // 나침반·글자·테두리까지 모두 덮는다
     host.append(el);
@@ -46,12 +48,19 @@
     const iris = opt.style === 'iris';
     card.innerHTML = '';
     const t = document.createElement('div');
-    t.textContent = opt.title || '';
-    t.style.cssText = 'font-size:clamp(18px,3.2vw,30px);letter-spacing:.18em;font-weight:700';
+    // '수도사 묘지 · 납골당' 처럼 가운뎃점이 있으면 앞은 작은 윗줄, 뒤는 큰 이름으로
+    const parts = String(opt.title || '').split(/\s*·\s*/);
+    const name = parts.pop();
+    const sub = parts.length ? parts.join(' · ') : (opt.sub || '');
+    t.textContent = name;
+    t.style.cssText = 'font-size:clamp(24px,4.6vw,40px);line-height:1.2;letter-spacing:.06em;font-weight:800';
     const s = document.createElement('div');
-    s.textContent = opt.sub || '';
-    s.style.cssText = 'font-size:clamp(11px,1.5vw,14px);letter-spacing:.3em;opacity:.7';
-    card.append(s, t);
+    s.textContent = sub;
+    s.style.cssText = 'font-size:clamp(13px,1.9vw,17px);letter-spacing:.14em;font-weight:700;color:#b9ad94';
+    const rule = document.createElement('div');
+    rule.style.cssText = 'width:min(180px,40%);height:1px;background:linear-gradient(90deg,transparent,#e9a23b88,transparent)';
+    if (sub) card.append(s);
+    card.append(t, rule);
     el.style.display = 'block';
     const big = Math.hypot(host.clientWidth, host.clientHeight) * 1.05;
     const setHole = (r) => { hole.style.width = hole.style.height = r + 'px'; };
