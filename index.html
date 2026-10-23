@@ -164,7 +164,7 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
 /* 파티원 */
 .party { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .party li { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center; }
-.party li.down { opacity: 0.45; }
+.party li.down { opacity: 0.6; filter: grayscale(1); }  /* 쓰러진 동료: 줄 전체를 회색으로 */
 .pm-info { display: grid; gap: 4px; min-width: 0; }
 /* 얼굴: portraits/<face>.png 를 정사각형으로 채우고, 없으면 직업 문양 */
 .face {
@@ -173,7 +173,8 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
 }
 .face::before { content: attr(data-glyph); font-size: 26px; color: var(--torch); opacity: 0.55; }
 .face img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.party li.down .face img { filter: grayscale(1) brightness(0.6); }
+.party li.down .face img { filter: grayscale(1) brightness(0.55) contrast(1.1); }
+.party li.down .pm-num span:first-child { color: var(--blood); }
 .pm-top { display: flex; align-items: baseline; gap: 8px; }
 .pm-top b { font: 700 15px/1 var(--f-display); }
 .pm-top .cls { color: var(--ash); font-size: 12px; }
@@ -392,6 +393,31 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
 @keyframes tsBlink { 50% { opacity: 0.2; } }
 @media (prefers-reduced-motion: reduce) { .titleScreen .tsBlink { animation: none; } }
 @media (max-height: 640px) { .titleScreen .tsInner { margin-top: 4vh; gap: 12px; } }
+/* 게임 오버: 탐험대가 모두 쓰러지면 화면 전체가 어두워지며 천천히 떠오른다 */
+.gameOver {
+  position: fixed; inset: 0; z-index: 45; display: grid; place-items: center; overflow-y: auto; text-align: center;
+  background: radial-gradient(ellipse at 50% 45%, rgba(70,8,10,0.92) 0%, rgba(20,4,6,0.97) 50%, #030203 100%);
+  padding: max(24px, env(safe-area-inset-top, 0px)) 16px max(24px, env(safe-area-inset-bottom, 0px));
+  animation: goFade 1.8s ease-out both;
+}
+.gameOver .goInner { display: grid; gap: 16px; justify-items: center; width: min(640px, 100%); animation: goRise 2.4s ease-out both; }
+.gameOver .goBig { margin: 0; font: 400 clamp(56px, 15vw, 104px)/0.9 var(--f-num); letter-spacing: 0.1em; white-space: nowrap; color: #c3262b; text-shadow: 0 0 18px rgba(195,38,43,0.55), 0 3px 0 #000; }
+.gameOver h2 { margin: -4px 0 0; font: 800 clamp(24px, 6vw, 32px)/1.2 var(--f-display); letter-spacing: 0.1em; color: var(--bone); }
+.gameOver .goText { margin: 0; color: #b9b2a0; }
+.gameOver .goFaces { display: flex; gap: 10px; }
+.gameOver .goFaces img { width: 64px; height: 64px; object-fit: cover; border: 1px solid #4a1418; filter: grayscale(1) brightness(0.5) contrast(1.15); }
+.gameOver .goStat { margin: 0; font: 400 18px var(--f-num); letter-spacing: 0.08em; color: var(--ash); }
+.gameOver .goMenu { display: grid; gap: 10px; width: min(300px, 100%); margin-top: 6px; animation: goFade 1s 1.6s ease-out both; }
+.gameOver .goMenu button {
+  min-height: 48px; padding: 8px 16px; cursor: pointer;
+  background: rgba(14,8,10,0.85); border: 1px solid #5a2a2c; color: var(--bone);
+  font: 700 17px/1.2 var(--f-body); letter-spacing: 0.04em;
+}
+.gameOver .goMenu button:hover, .gameOver .goMenu button:focus-visible { border-color: var(--torch); color: var(--torch); }
+.gameOver .goMenu button small { display: block; margin-top: 3px; font: 400 13px var(--f-body); color: var(--ash); }
+@keyframes goFade { from { opacity: 0; } }
+@keyframes goRise { from { opacity: 0; transform: translateY(14px); } 30% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .gameOver, .gameOver .goInner, .gameOver .goMenu { animation: none; } }
 </style>
 
 <section class="titleScreen" id="titleScreen" aria-label="시작 화면" hidden>
@@ -413,6 +439,21 @@ dd { margin: 0; font: 400 20px/1.1 var(--f-num); text-align: right; font-variant
       <b>기록</b> 마을 성당 신부님께 말하거나 SAVE 버튼
     </div>
     <p class="tsFoot tsBlink" id="tsPress">PRESS ENTER</p>
+  </div>
+</section>
+
+<section class="gameOver" id="gameOver" aria-label="게임 오버" role="dialog" hidden>
+  <div class="goInner">
+    <p class="goBig">GAME OVER</p>
+    <h2>탐험대 전멸</h2>
+    <p class="goText" id="goText"></p>
+    <div class="goFaces" id="goFaces"></div>
+    <p class="goStat" id="goStat"></p>
+    <div class="goMenu">
+      <button type="button" id="goLoad" hidden>기록한 곳부터 다시<small id="goLoadInfo"></small></button>
+      <button type="button" id="goNew">처음부터 다시</button>
+      <button type="button" id="goTitle">시작 화면으로</button>
+    </div>
   </div>
 </section>
 

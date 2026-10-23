@@ -339,6 +339,7 @@
 
   function end(kindOfEnd) {
     S.ended = kindOfEnd;
+    if (kindOfEnd === 'dead') { showGameOver(); updateStatus(); return; }
     const win = kindOfEnd === 'win';
     $('endTitle').textContent = win ? '사건 해결' : '탐험대 전멸';
     $('endText').textContent = win
@@ -787,6 +788,9 @@
 
   function endBattle() {
     S.battle = null;
+    // 전투가 끝나면(이기거나 도망쳐도) 쓰러진 동료가 체력 1로 일어난다
+    for (const m of S.party) if (m.hp <= 0) { m.hp = 1; log(m.name + '이(가) 간신히 정신을 차렸다. (HP 1)', 'good'); }
+    updateStatus();
     if (window.BGM) BGM.battleEnd();
     busy = false;
     battleUI.hidden = true;
@@ -2403,6 +2407,20 @@
     if (A.frame) drawFrame9(A.frame, W, H);
   }
 
+  // ---------- 얼굴 그림 ----------
+  // 평소 얼굴과 다친 얼굴(_dmg)을 미리 받아 둔다. 다 받으면 파티 칸을 다시 그려서, 처음 다쳤을 때 그림을 못 받아 평소 얼굴로 남는 일이 없게 한다
+  const FACE_OK = {};
+  for (const m of D.party.members) {
+    for (const k of [m.face, m.face + '_dmg']) {
+      if (!m.face || k in FACE_OK) continue;
+      FACE_OK[k] = null;
+      const img = new Image();
+      img.onload = () => { FACE_OK[k] = true; if (S) updateStatus(); };
+      img.onerror = () => { FACE_OK[k] = false; if (S) updateStatus(); };
+      img.src = 'portraits/' + k + '.png';
+    }
+  }
+
   // ---------- 무기 아이콘 ----------
   // weapons/<id>.png 그림이 있으면 그 그림, 없으면 16칸 도트로 코드가 그린다 (검·철퇴·지팡이)
   const WP_ART = {};
@@ -2476,6 +2494,15 @@
   }
 
   // ---------- UI ----------
+  // 체력이 3분의 1 이하이거나 쓰러지면 <face>_dmg.png 다친 얼굴 (쓰러지면 CSS 가 회색으로), 그 그림이 없으면 평소 얼굴
+  function faceImg(face, m) {
+    const hurt = Number(m.hp) <= Number(m.maxHp) / 3 && FACE_OK[face + '_dmg'] !== false;
+    const img = new Image();
+    img.alt = '';
+    img.onerror = () => { if (hurt && !img.dataset.fallback) { img.dataset.fallback = 1; img.src = 'portraits/' + face + '.png'; } else img.remove(); };
+    img.src = 'portraits/' + face + (hurt ? '_dmg' : '') + '.png';
+    return img;
+  }
   const CLASS_GLYPH = { '전사': '⚔\uFE0E', '사제': '✚\uFE0E', '마법사': '✦\uFE0E' };
   function updateStatus() {
     $('floorName').textContent = inWorld() ? area().name : floor().name;
@@ -2492,15 +2519,8 @@
       li.innerHTML = '<div class="face" data-glyph="' + (CLASS_GLYPH[m.cls] || '?') + '"></div><div class="pm-info"><div class="pm-top"><b></b><span class="cls"></span><span class="lv"></span></div>' +
         '<div class="bar"><i style="width:' + (100 * ratio) + '%"' + (ratio <= 0.3 ? ' class="low"' : '') + '></i></div>' +
         '<div class="pm-num"><span>HP ' + m.hp + '/' + m.maxHp + '</span>' + (m.maxMp ? '<span>MP ' + m.mp + '/' + m.maxMp + '</span>' : '') + '</div></div>';
-      if (face) {
-        // 체력이 3분의 1 아래면 <face>_dmg.png 다친 얼굴, 그 그림이 없으면 평소 얼굴
-        const hurt = m.hp > 0 && m.hp <= m.maxHp / 3;
-        const img = new Image();
-        img.alt = '';
-        img.onerror = () => { if (hurt && !img.dataset.fallback) { img.dataset.fallback = 1; img.src = 'portraits/' + face + '.png'; } else img.remove(); };
-        img.src = 'portraits/' + face + (hurt ? '_dmg' : '') + '.png';
-        li.querySelector('.face').append(img);
-      }
+      if (face) li.querySelector('.face').append(faceImg(face, m));
+      if (m.hp <= 0) li.querySelector('.pm-num span').textContent = '쓰러짐';
       li.querySelector('b').textContent = m.name;
       li.querySelector('.cls').textContent = m.cls;
       li.querySelector('.lv').textContent = 'Lv ' + m.lv;
@@ -2580,7 +2600,8 @@
     if (window.BGM) BGM.battleEnd(); // 전투 도중 새로 시작·불러오기
     dialog = null;
     $('event').hidden = true;
-    $('ending').hidden = !S.ended;
+    $('ending').hidden = !S.ended || S.ended === 'dead';
+    if (S.ended === 'dead') showGameOver(); else $('gameOver').hidden = true;
     if (!S.log.length) { D.intro.forEach((l) => log(l)); log((inWorld() ? area().name : floor().name) + '. 방향 버튼으로 걷고, [조사]로 말을 건다.', 'hint'); }
     builtFloor = null;
     if (camera) snapCamera();
@@ -2715,6 +2736,28 @@
   $('btnLoad').addEventListener('click', load);
   $('btnNew').addEventListener('click', () => startGame(null));
   $('endRestart').addEventListener('click', () => startGame(null));
+
+  // ---------- 게임 오버 ----------
+  const GO_TEXT = ['어둠 속에서 탐험대의 등불이 꺼졌다.', '차가운 돌바닥 위로 마지막 숨이 흩어졌다.', '수도원의 침묵이 또 한 무리의 발소리를 삼켰다.'];
+  function showGameOver() {
+    const where = inWorld() ? area().name : floor().name;
+    $('goText').textContent = GO_TEXT[Math.floor(Math.random() * GO_TEXT.length)];
+    $('goStat').textContent = where + ' · ' + S.steps + '걸음 · Lv ' + Math.max(...S.party.map((m) => m.lv));
+    const faces = $('goFaces'); faces.textContent = '';
+    S.party.forEach((m, i) => { const face = m.face || (D.party.members[i] || {}).face; if (face) faces.append(faceImg(face, { hp: 0, maxHp: 1 })); });
+    const info = savedInfo();
+    $('goLoad').hidden = !info;
+    $('goLoadInfo').textContent = info || '';
+    $('ending').hidden = true;
+    $('event').hidden = true;
+    $('gameOver').hidden = false;
+    if (window.BGM) BGM.stop();
+    setTimeout(() => { if (!$('gameOver').hidden) (info ? $('goLoad') : $('goNew')).focus({ preventScroll: true }); }, 1700);
+  }
+  function leaveGameOver(next) { $('gameOver').hidden = true; next(); }
+  $('goLoad').addEventListener('click', () => leaveGameOver(load));
+  $('goNew').addEventListener('click', () => leaveGameOver(() => startGame(null)));
+  $('goTitle').addEventListener('click', () => leaveGameOver(() => { startGame(null); showTitle(); }));
 
   // 미니맵 선명도
   (function hiDPI() {
