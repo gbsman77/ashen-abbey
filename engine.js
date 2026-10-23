@@ -1911,6 +1911,53 @@
       if (c === 'F') { wctx.save(); wctx.translate(px, py); turned(wctx, T, s, () => wctx.drawImage(art, 0, 0, T, T)); wctx.restore(); }
     }
   }
+  // 흙길 가장자리: 풀밭과 닿은 쪽에 풀이 들쭉날쭉하게 덮이고 안쪽에 흙 그늘을 넣는다.
+  // 들쭉날쭉한 선은 지도 좌표로 정해서 옆 길 칸과 이어진다.
+  const PATHY = ':=|', PM = 32;
+  const hash2 = (a, b) => { let h = (a * 374761393 + b * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const vnoise = (t, k) => { const i = Math.floor(t), f = t - i, s = f * f * (3 - 2 * f); return hash2(i, k) * (1 - s) + hash2(i + 1, k) * s; };
+  function grassy(x, y) {
+    const c = wcell(x, y); if (c == null || PATHY.includes(c)) return false;
+    const ev = area().events[c], ter = ev ? TERRAIN[ev.ground || area().ground] : TERRAIN[c];
+    if (!ter) return false;
+    return ['grass', 'flowers', 'forest', 'woods'].includes(ter.under ? underTile(ter) : ter.tile);
+  }
+  function pathOverlay(x, y, T) {
+    const side = DX.map((dx, s) => grassy(x + dx, y + DY[s]));
+    const diag = [[1, -1], [1, 1], [-1, 1], [-1, -1]].map(([dx, dy]) => grassy(x + dx, y + dy));
+    if (!side.some(Boolean) && !diag.some(Boolean)) return null;
+    const grass = tileImg('grass', 0), key = 'path|' + S.area + '|' + x + ',' + y + '|' + T + '|' + grass.width;
+    if (EDGE_CACHE.has(key)) return EDGE_CACHE.get(key);
+    // 가장자리에서 풀이 들어오는 깊이 (PM 칸 도트 단위, u: 가장자리를 따라가는 지도 좌표)
+    const depth = (s, u) => 1.5 + 2.6 * vnoise(u / 6, s % 2 ? 11 : 7) + vnoise(u / 2.5, s % 2 ? 5 : 3);
+    const m = new ImageData(PM, PM), rim = new ImageData(PM, PM);
+    for (let j = 0; j < PM; j++) for (let i = 0; i < PM; i++) {
+      const wx = x * PM + i, wy = y * PM + j;
+      const d = [j, PM - 1 - i, PM - 1 - j, i], u = [wx, wy, wx, wy]; // 북·동·남·서
+      let g = -99;
+      for (let s = 0; s < 4; s++) if (side[s]) g = Math.max(g, depth(s, u[s]) - d[s]);
+      // 두 옆이 풀이면 바깥 모서리를 둥글게, 대각선만 풀이면 모서리에 작은 풀 덩이
+      [[0, 1], [2, 1], [2, 3], [0, 3]].forEach(([a, b], k) => {
+        const R = 9;
+        if (side[a] && side[b] && d[a] < R && d[b] < R) g = Math.max(g, Math.hypot(R - d[a], R - d[b]) - R + 0.5);
+        if (!side[a] && !side[b] && diag[k]) g = Math.max(g, 4 + 2.5 * vnoise((wx + wy) / 5, 13) - Math.hypot(d[a], d[b]));
+      });
+      g += (hash2(wx, wy) - 0.5) * 1.1;
+      const p = (j * PM + i) * 4;
+      if (g > 0) m.data[p + 3] = 255;
+      else if (g > -1.6) { rim.data[p] = 70; rim.data[p + 1] = 46; rim.data[p + 2] = 22; rim.data[p + 3] = 90; }
+    }
+    const c = edgeCanvas(T), g = c.getContext('2d'), mc = edgeCanvas(PM), mg = mc.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    mg.putImageData(rim, 0, 0); g.drawImage(mc, 0, 0, T, T);
+    const gc = edgeCanvas(T), gg = gc.getContext('2d');
+    gg.imageSmoothingEnabled = grass.width > 32; gg.drawImage(grass, 0, 0, T, T);
+    mg.putImageData(m, 0, 0);
+    gg.globalCompositeOperation = 'destination-in'; gg.imageSmoothingEnabled = false; gg.drawImage(mc, 0, 0, T, T);
+    g.drawImage(gc, 0, 0);
+    EDGE_CACHE.set(key, c);
+    return c;
+  }
 
   // ----- 마을 사람: wander 칸 안에서 천천히 돌아다니고, 말을 걸면 주인공 쪽을 본다 -----
   let movers = null, moversArea = null;
@@ -2096,10 +2143,15 @@
           if (ter.block && worldArt(ter.tile)) continue; // 아래 blocks 단계에서 한 장으로 그린다
           if (ch === 'r' && worldArt('rug')) { drawRug(x, y, px, py, T); continue; }
           if (ch === 'f' && worldArt('fence') && fenceUpright(x, y)) { drawPicket(px, py, T); continue; }
+          if (ter.tile === 'bridge') { // 다리 밑에 강물과 강가를 먼저 깔아 다리 칸끼리 이어지게 한다
+            blit(tileImg('water', clock), px, py, T);
+            const bits = edgeBits(WATERY, x, y); if (bits) wctx.drawImage(shoreOverlay(bits, T, v), px, py);
+          }
           if (ter.turn) { // 세로 다리: 가로 다리 그림을 90° 돌린다
             wctx.save(); wctx.translate(px + T, py); wctx.rotate(Math.PI / 2);
             blit(tileImg(ter.tile, clock), 0, 0, T); wctx.restore();
           } else blit(tileImg(ter.tile, clock), px, py, T);
+          if (ch === ':') { const o = pathOverlay(x, y, T); if (o) wctx.drawImage(o, px, py); }
           if (ch === '~' || ch === 'w') { const bits = edgeBits(WATERY, x, y); if (bits) wctx.drawImage(shoreOverlay(bits, T, v), px, py); }
           else if (!WOODY.includes(ch)) forestOverhang(x, y, px, py, T);
           continue;
