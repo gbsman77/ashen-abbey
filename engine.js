@@ -1477,8 +1477,8 @@
     'v': { tile: 'barrel', under: 'ground' }, 'C': { tile: 'chapel_roof' }, 'G': { tile: 'stone_wall' },
     // 집 안
     '_': { tile: 'floor', walk: true }, 'r': { tile: 'rug', walk: true }, 'I': { tile: 'iwall' },
-    // block: 그림이 있으면 붙어 있는 같은 칸 묶음 위에 한 장으로 그린다 (fit 비율 유지 / wide 옆으로 늘림 / rise 위로 넘치는 높이, 기본 0.6칸)
-    'q': { tile: 'table', under: 'ground', block: 'fit' }, 'B': { tile: 'bed', under: 'ground', block: 'fit' },
+    // block: 그림이 있으면 붙어 있는 같은 칸 묶음 위에 한 장으로 그린다 (fit 비율 유지 / wide 옆으로 늘림 / rise 위로 넘치는 높이, 기본 0.6칸, scale 묶음 안에서 더 작게)
+    'q': { tile: 'table', under: 'ground', block: 'fit', scale: 0.62 }, 'B': { tile: 'bed', under: 'ground', block: 'fit' },
     'K': { tile: 'counter', under: 'ground', over: true }, 'J': { tile: 'shelf', under: 'ground' },
     'O': { tile: 'hearth' }, 'e': { tile: 'pew', under: 'ground', block: 'wide' }, 'Q': { tile: 'altar', under: 'ground', over: true, block: 'wide', rise: 0.25 },
     'P': { tile: 'plant', under: 'ground' }
@@ -2175,6 +2175,7 @@
         const W2 = b.w * T, H2 = b.h * T;
         let s = Math.min(W2 * 0.96 / img.width, (H2 + T * (TERRAIN[b.ch].rise ?? 0.6)) / img.height), w = img.width * s, h = img.height * s;
         if (TERRAIN[b.ch].block === 'wide') w = Math.min(W2 * 0.96, w * 1.6);
+        const k = TERRAIN[b.ch].scale ?? 1; w *= k; h *= k;
         wctx.imageSmoothingEnabled = true;
         wctx.drawImage(img, Math.round(ox + b.x * T + (W2 - w) / 2), Math.round(oy + b.y * T + H2 - h - T * 0.03), Math.round(w), Math.round(h));
       } });
