@@ -1787,6 +1787,17 @@
     }
     return worldArt('npc_' + look) || dotPerson(look, dir, step);
   }
+  // 주인공: hero_<방향>.png(서기)와 _1·_2(왼발·오른발)가 있으면 phase 0·2 에 걸음 그림, 1·3·멈춤(-1)에 서기 그림
+  function drawHero(dir, phase, x, y, T) {
+    const d = DIR_FILE[dir], a = WORLD_ART['hero_' + d + '_1'], b = WORLD_ART['hero_' + d + '_2'], st = worldArt('hero_' + d);
+    if (a && b && st) {
+      wctx.imageSmoothingEnabled = true;
+      wctx.drawImage(phase === 0 ? a : phase === 2 ? b : st, x, y, T, T);
+      return;
+    }
+    if (phase < 0) { const img = personImg('hero', dir, 0); if (img.width > 32) { wctx.imageSmoothingEnabled = true; wctx.drawImage(img, x, y, T, T); return; } }
+    drawPerson('hero', dir, phase === 2 ? 1 : 0, x, y, T, phase >= 0);
+  }
   // 사람 그리기: 그림 한 장으로 걷는 느낌을 낸다 (위·아래는 걸음마다 좌우 뒤집기, 옆은 살짝 들썩임)
   function drawPerson(look, dir, step, x, y, T, moving) {
     // 걷는 그림 hero_<방향>_1.png · _2.png 가 둘 다 있으면 걷는 동안 번갈아 쓴다
@@ -1944,7 +1955,10 @@
   }
 
   // ----- 주인공 이동 -----
+  // walk: 지금까지 걸은 거리(칸). 걸음 그림 순서를 거리에 맞춘다
   const hero = { x: 0, y: 0, walk: 0 };
+  // 누르고 있는 걷기 방향 (-1 이면 없음): 칸에 닿자마자 멈추지 않고 다음 칸으로 이어 걷는다
+  let heldWalk = -1;
   function snapHero() { if (S) { hero.x = S.wx; hero.y = S.wy; } }
   const heroBusy = () => Math.abs(hero.x - S.wx) + Math.abs(hero.y - S.wy) > 0.2;
 
@@ -2034,11 +2048,22 @@
     fitWorld();
     const W = worldCv.width, H = worldCv.height, A = area(), map = A.map;
     const rows = map.length, cols = map[0].length;
-    // 일정한 속도로 다음 칸까지 걷는다
-    const sp = (reduceMotion ? 50 : 6.5) * dt;
-    const dx = S.wx - hero.x, dy = S.wy - hero.y, dist = Math.hypot(dx, dy);
-    if (dist > 3) snapHero();
-    else if (dist > 0) { const k = Math.min(1, sp / dist); hero.x += dx * k; hero.y += dy * k; hero.walk += dt; }
+    // 일정한 속도로 다음 칸까지 걷는다. 방향을 누르고 있으면 남은 거리만큼 다음 칸으로 바로 이어 간다
+    let sp = (reduceMotion ? 50 : 5) * dt;
+    if (dialog || S.battle) heldWalk = -1; // 말을 걸거나 싸우면 손을 떼야 다시 걷는다 (같은 사람에게 계속 말 걸지 않게)
+    for (let n = 0; n < 3 && sp > 0; n++) {
+      const dx = S.wx - hero.x, dy = S.wy - hero.y, d = Math.hypot(dx, dy);
+      if (d > 3) { snapHero(); break; }
+      if (d > 0 && sp >= d) { hero.x = S.wx; hero.y = S.wy; hero.walk += d; sp -= d; }
+      else if (d > 0) { hero.x += dx * sp / d; hero.y += dy * sp / d; hero.walk += sp; sp = 0; }
+      const at = heldWalk + ':' + S.area + ':' + S.wx + ',' + S.wy;
+      if (hero.x !== S.wx || hero.y !== S.wy || heldWalk < 0 || hero.blocked === at || dialog || S.battle || (window.Curtain && Curtain.busy)) break;
+      const A0 = S.area;
+      walk(heldWalk);
+      if (S.area !== A0) break;
+      if (hero.x === S.wx && hero.y === S.wy) { hero.blocked = at; break; } // 벽 앞: 매 장면마다 다시 부딪히지 않는다
+    }
+    const dist = hero.x !== S.wx || hero.y !== S.wy ? 1 : 0;
     const T = Math.ceil(W / viewCols());
     const viewW = W / T, viewH = H / T;
     const clampC = (c, n, v) => (n <= v ? n / 2 : Math.max(v / 2, Math.min(n - v / 2, c)));
@@ -2102,9 +2127,10 @@
         wctx.drawImage(img, Math.round(ox + b.x * T + (W2 - w) / 2), Math.round(oy + b.y * T + H2 - h - T * 0.03), Math.round(w), Math.round(h));
       } });
     }
-    const stepF = dist > 0.01 ? Math.floor(hero.walk * 6) % 2 : Math.floor(clock * 2) % 2;
+    // 한 칸에 반걸음씩: 왼발 → 서기 → 오른발 → 서기 (멈추면 서기)
+    const stepF = dist ? Math.floor(hero.walk * 2) % 4 : -1;
     for (const m of ensureMovers()) draws.push({ z: m.fy + 1, f: () => drawPerson(m.ev.npc, m.dir, Math.floor(clock * 2 + m.hx) % 2, Math.round(ox + m.fx * T), Math.round(oy + m.fy * T), T) });
-    draws.push({ z: hero.y + 1, f: () => drawPerson('hero', S.wdir, stepF, Math.round(ox + hero.x * T), Math.round(oy + hero.y * T), T, dist > 0.01) });
+    draws.push({ z: hero.y + 1, f: () => drawHero(S.wdir, stepF, Math.round(ox + hero.x * T), Math.round(oy + hero.y * T), T) });
     draws.sort((a, b) => a.z - b.z).forEach((d) => d.f());
     if (S.battle) drawWorldBattle(W, H);
   }
@@ -2400,21 +2426,31 @@
       q: 'sl', Q: 'sl', e: 'sr', E: 'sr', ' ': 'search', f: 'search', F: 'search'
     };
     const act = map[e.key];
-    if (act) { e.preventDefault(); ACTIONS[act](); }
+    if (!act) return;
+    e.preventDefault();
+    if (WALK_DIR[act] != null && inWorld()) { // 지상: 누르고 있는 동안 이어 걷는다 (키 반복 입력은 쓰지 않음)
+      if (e.repeat) return;
+      heldKey = e.key.toLowerCase(); heldWalk = WALK_DIR[act]; hero.blocked = null;
+    }
+    ACTIONS[act]();
   });
+  document.addEventListener('keyup', (e) => { if (e.key.toLowerCase() === heldKey || e.key === heldKey) { heldKey = ''; heldWalk = -1; } });
+  const WALK_DIR = { fwd: 0, right: 1, sr: 1, back: 2, left: 3, sl: 3 };
+  let heldKey = '';
   // 패드 버튼: 누르는 즉시 움직이고, 지상에서 걷기 버튼을 누르고 있으면 계속 걷는다
   const HOLD = { fwd: 1, back: 1, left: 1, right: 1, sl: 1, sr: 1 };
   let holdTimer = 0;
-  const stopHold = () => { clearTimeout(holdTimer); holdTimer = 0; };
+  const stopHold = () => { clearTimeout(holdTimer); holdTimer = 0; heldWalk = -1; heldKey = ''; };
   document.querySelectorAll('[data-act]').forEach((b) => {
     const act = b.dataset.act;
     b.addEventListener('pointerdown', (e) => {
       if (e.button) return;
       e.preventDefault();
       stopHold();
+      if (WALK_DIR[act] != null && inWorld()) { heldWalk = WALK_DIR[act]; hero.blocked = null; } // 지상: 누르고 있으면 그림 그리는 쪽에서 이어 걷는다
       ACTIONS[act]();
       const repeat = () => {
-        if (HOLD[act] && inWorld() && !dialog && !S.battle) ACTIONS[act]();
+        if (HOLD[act] && inWorld() && heldWalk < 0 && !dialog && !S.battle) ACTIONS[act]();
         holdTimer = setTimeout(repeat, 170);
       };
       if (HOLD[act]) holdTimer = setTimeout(repeat, 320);
@@ -2526,7 +2562,7 @@
   // 개발용: 주소 끝에 #debug 를 붙이면 콘솔에서 dungeon.warp('b1', x, y, dir) 사용 가능
   if (location.hash === '#debug') {
     window.dungeon = {
-      state: () => S, battle: (id) => startBattle(id, null),
+      state: () => S, hero: () => hero, battle: (id) => startBattle(id, null),
       art: (kind) => monsterTexture(kind).image.toDataURL(), // 코드로 그린 기본 적 그림
       warp: (f, x, y, dir) => { applyEffects([{ warp: D.areas[f] ? { area: f, x, y, dir } : { floor: f, x, y, dir } }]); }
     };
