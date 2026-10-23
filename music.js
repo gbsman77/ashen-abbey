@@ -250,7 +250,39 @@
     };
   }
 
-  const SONGS = { town: songTown, field: songField, dungeon1: songDungeon1, dungeon2: songDungeon2, crypt: songCrypt, battle: songBattle, victory: songVictory };
+  // 시작 화면: 웅장하고 신비롭게. D단조 72 BPM. 하프와 합창으로 조용히 열고, 뒤 절반은 현악·트럼펫이 선율을 크게 펼친다.
+  function songTitle() {
+    const ch = ['Dm', 'A#', 'Gm', 'A', 'Dm', 'F', 'C', 'A', 'A#', 'F', 'Gm', 'Dm', 'A#', 'C', 'A', 'A'];
+    const mel = bars([
+      '-/4 A4/4 D5/4 E5/4', 'F5/12 E5/2 D5/2', 'D5/8 C5/4 A#4/4', 'A4/16',
+      '-/4 A4/4 D5/4 F5/4', 'A5/12 G5/2 F5/2', 'G5/8 E5/4 C5/4', 'E5/8 C#5/8',
+      'D6/8 F6/4 D6/4', 'C6/12 A5/4', 'A#5/6 A5/2 G5/4 A#5/4', 'A5/16',
+      'D6/6 C6/2 A#5/4 D6/4', 'E6/8 C6/4 G5/4', 'C#6/8 E6/8', 'A5/16'
+    ]);
+    const quiet = mel.filter((e) => e.s < 128), grand = mel.filter((e) => e.s >= 128);
+    const sparkle = [[6, 'A6'], [22, 'F6'], [38, 'D7'], [54, 'C#7'], [70, 'A6'], [86, 'C7'], [102, 'G6'], [118, 'E7']].map(([s, n]) => ({ s, l: 1, m: [midi(n)] }));
+    const toll = [0, 64, 128, 192].map((s) => ({ s, l: 16, m: [midi('D4')] }));
+    const calm = 't...............', roll = 't.......t.t.tttt';
+    return {
+      bpm: 72, bars: 16, timp: 38, echo: { time: 0.5, fb: 0.4, mix: 0.4 },
+      tracks: [
+        { inst: 'horn', vol: 0.5, send: 0.55, pan: 0.15, ev: quiet },
+        { inst: 'strings', vol: 0.55, send: 0.5, pan: -0.2, ev: grand },
+        { inst: 'trumpet', vol: 0.28, send: 0.5, pan: 0.2, ev: grand },
+        { inst: 'horn', vol: 0.3, send: 0.5, pan: 0.35, ev: grand.map((e) => ({ ...e, m: e.m.map((x) => x - 12) })) },
+        { inst: 'harp', vol: 0.2, send: 0.6, pan: -0.4, ev: arp(ch, 3, [0, 1, 2, 4, 5, 4, 2, 1], 2) },
+        { inst: 'choir', vol: 0.3, send: 0.65, ev: comp(ch, 4, [[0, 16]], (t) => t.slice(0, 3)) },
+        { inst: 'celesta', vol: 0.14, send: 0.8, pan: 0.45, ev: sparkle },
+        { inst: 'bells', vol: 0.22, send: 0.8, pan: -0.25, ev: toll },
+        { inst: 'bassLong', vol: 0.2, send: 0.3, ev: comp(ch, 2, [[0, 16]], (t) => [t[0]]) }
+      ],
+      drums: drums([calm, '................', calm, roll, calm, '................', calm, roll,
+        'c...............', calm, calm, roll, 'c...............', calm, calm, roll]),
+      dvol: 0.5
+    };
+  }
+
+  const SONGS = { title: songTitle, town: songTown, field: songField, dungeon1: songDungeon1, dungeon2: songDungeon2, crypt: songCrypt, battle: songBattle, victory: songVictory };
   const SCENES = { town: 'town', field: 'field', b1: 'dungeon1', b2: 'dungeon2', crypt: 'crypt' };
   const cache = {};
   const song = (name) => cache[name] || (cache[name] = SONGS[name]());
@@ -647,8 +679,11 @@
   // 브라우저 자동재생 제한: 첫 터치·클릭·키 입력에서 소리를 연다.
   // 폰에서는 손을 뗄 때(touchend·click)만 '사용자 동작'으로 쳐 주므로 매 입력마다 다시 시도한다.
   // 다른 앱·전화로 끊기면(interrupted) 화면으로 돌아오거나 다음에 누를 때 다시 켠다.
-  function unlock() {
+  let wakeEvent = null; // 소리를 처음 깨운 입력 (시작 화면에서 그 입력은 음악만 켠다)
+  function unlock(ev) {
+    const was = !!ctx && ctx.state === 'running';
     if (!ensure()) return;
+    if (!was && !wakeEvent) wakeEvent = ev || true;
     playbackMode();
     const go = () => { if (want && (!cur || cur.name !== want)) { fadeOut(cur); cur = null; start(want); } };
     if (ctx.state === 'running') go(); else ctx.resume().then(go, () => {});
@@ -788,6 +823,10 @@
     battle: () => { if (fight !== 'victory') { fight = 'battle'; play('battle'); } },
     victory: () => { fight = 'victory'; play('victory'); },
     battleEnd: () => { fight = null; play(sceneSong); },
+    // 시작 화면: 열려 있는 동안 테마곡, 닫으면 장면 곡으로
+    title: () => { fight = 'title'; play('title'); },
+    titleEnd: () => { if (fight === 'title') { fight = null; play(sceneSong); } },
+    wokeBy: (e) => !!e && e === wakeEvent,
     toggle: () => setMuted(!muted),
     setVolume,
     get volume() { return volume; },

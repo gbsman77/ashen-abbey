@@ -2411,6 +2411,7 @@
   document.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (titleOpen) { // 시작 화면에서는 Enter 로 맨 위 버튼을 누른다
+      if (window.BGM && BGM.wokeBy && BGM.wokeBy(e)) { e.preventDefault(); return; } // 첫 키는 음악만 깨운다 (PRESS ENTER)
       if (e.key === 'Enter' && !(document.activeElement && document.activeElement.closest('#titleScreen button'))) { e.preventDefault(); ($('tsCont').hidden ? $('tsNew') : $('tsCont')).click(); }
       return;
     }
@@ -2530,9 +2531,10 @@
     $('tsCont').hidden = !info;
     $('tsContInfo').textContent = info || '';
     titleUI.hidden = false; titleOpen = true;
+    if (window.BGM && BGM.title) BGM.title(); // 시작 화면 테마곡 (music.js)
     (info ? $('tsCont') : $('tsNew')).focus();
   }
-  function closeTitle(next) { titleUI.hidden = true; titleOpen = false; next(); }
+  function closeTitle(next) { titleUI.hidden = true; titleOpen = false; if (window.BGM && BGM.titleEnd) BGM.titleEnd(); next(); }
   $('tsNew').addEventListener('click', () => closeTitle(() => startGame(null)));
   $('tsCont').addEventListener('click', () => closeTitle(load));
   $('tsHelpBtn').addEventListener('click', () => {
