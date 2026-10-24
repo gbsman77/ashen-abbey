@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>로엘 마을 3D</title>
+<style>
+  :root { --ink:#f4ead2; --panel:rgba(20,16,12,.72); --line:rgba(244,234,210,.35); }
+  html,body { margin:0; height:100%; padding:0 !important; overflow:hidden; background:#9cc7de; font-family:"Noto Serif KR","Apple SD Gothic Neo",serif; color:var(--ink); -webkit-user-select:none; user-select:none; touch-action:none; }
+  canvas { display:block; }
+  #hud { position:fixed; left:12px; top:calc(10px + env(safe-area-inset-top)); padding:6px 12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; font-size:14px; pointer-events:none; }
+  #hud small { display:block; opacity:.75; font-size:11px; margin-top:2px; }
+  #toast { position:fixed; left:50%; top:calc(64px + env(safe-area-inset-top)); transform:translateX(-50%); padding:8px 16px; background:var(--panel); border:1px solid var(--line); border-radius:8px; font-size:15px; opacity:0; transition:opacity .3s; pointer-events:none; white-space:nowrap; }
+  #toast.on { opacity:1; }
+  #stick { position:fixed; width:120px; height:120px; margin:-60px 0 0 -60px; border-radius:50%; border:2px solid var(--line); background:rgba(20,16,12,.25); display:none; pointer-events:none; }
+  #knob { position:absolute; left:50%; top:50%; width:52px; height:52px; margin:-26px 0 0 -26px; border-radius:50%; background:rgba(244,234,210,.55); }
+  #hint { position:fixed; left:0; right:0; bottom:calc(16px + env(safe-area-inset-bottom)); text-align:center; font-size:13px; opacity:.9; pointer-events:none; text-shadow:0 1px 3px #000; }
+  #loading { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#1a1510; font-size:18px; gap:12px; z-index:5; transition:opacity .5s; }
+  #bar { width:200px; height:6px; border-radius:3px; background:#3a3025; overflow:hidden; }
+  #bar i { display:block; height:100%; width:0; background:#d9b56c; transition:width .2s; }
+  #credit { position:fixed; right:10px; top:calc(10px + env(safe-area-inset-top)); font-size:10px; opacity:.7; text-align:right; pointer-events:none; text-shadow:0 1px 2px #000; }
+</style>
+</head>
+<body>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+} }
+</script>
+<div id="loading"><div>마을을 불러오는 중…</div><div id="bar"><i></i></div></div>
+<div id="hud">로엘 마을 <small>3D 필드 시제품</small></div>
+<div id="credit">3D 모델: KayKit (Kay Lousberg, CC0)</div>
+<div id="toast"></div>
+<div id="stick"><div id="knob"></div></div>
+<div id="hint">왼쪽을 끌어서 걷기 · 오른쪽을 끌어서 시점 돌리기</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const SKY = 0x9cc7de;
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(SKY, 22, 48);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x7a8a6a, 1.6));
+const sun = new THREE.DirectionalLight(0xfff6e8, 1.6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 60 });
+sun.shadow.bias = -0.0008;
+sun.shadow.normalBias = 0.02;
+scene.add(sun, sun.target);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ---------- loading ----------
+// models are packed as base64 GLB inside JSON files (models/props.json, Knight.json, Mage.json)
+const bar = document.querySelector('#bar i');
+let got = 0;
+async function fetchPack(name) {
+  const res = await fetch('models/' + name + '.json');
+  const pack = await res.json();
+  got++; bar.style.width = (100 * got / 3) + '%';
+  return pack;
+}
+const loader = new GLTFLoader();
+function parse(b64) {
+  const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  return new Promise((ok, fail) => loader.parse(bin.buffer, '', ok, fail));
+}
+
+const PROPS = ['building_home_A_blue', 'building_home_B_blue', 'building_church_blue',
+  'building_well_blue', 'building_tavern_blue', 'building_blacksmith_blue', 'building_windmill_blue',
+  'building_market_blue', 'building_grain', 'building_stage_A', 'tree_single_A', 'tree_single_B',
+  'trees_A_large', 'trees_A_medium', 'rock_single_A', 'barrel', 'crate_A_big', 'wheelbarrow', 'tent',
+  'hill_single_A', 'mountain_A_grass'];
+
+const [propPack, knightPack, magePack] = await Promise.all(['props', 'Knight', 'Mage'].map(fetchPack));
+const [models, knightGltf, mageGltf] = await Promise.all([
+  Promise.all(PROPS.map(n => parse(propPack[n]))).then(list => Object.fromEntries(list.map((g, i) => [PROPS[i], g.scene]))),
+  parse(knightPack.Knight),
+  parse(magePack.Mage),
+]);
+
+for (const s of Object.values(models)) s.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+// ---------- world layout ----------
+const HS = 1.15;          // base unit: a house is about 2 units wide
+const TOP = 0;
+const TOWN_R = 23;
+const SPREAD = 1.4;      // town layout spacing
+const BUILD = 1.6;       // buildings are scaled up next to the characters        // walkable radius
+const colliders = [];     // {x,z,r}
+const labels = [];        // {x,z,text}
+
+// dirt roads as polylines
+const ROADS = [
+  [[-30, 0.5], [-8, 0.5], [0, 1.5], [8, 0.5], [30, -1]],
+  [[0, 1.5], [1, -4], [1.5, -7.5]],
+  [[0, 1.5], [3, 5], [5, 9]],
+];
+function segDist(px, pz, [ax, az], [bx, bz]) {
+  const dx = bx - ax, dz = bz - az;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(px - ax - t * dx, pz - az - t * dz);
+}
+function roadDist(x, z) {
+  x /= SPREAD; z /= SPREAD;
+  let d = Infinity;
+  for (const line of ROADS) for (let i = 1; i < line.length; i++) d = Math.min(d, segDist(x, z, line[i - 1], line[i]));
+  return d * SPREAD;
+}
+const noise = (x, z) => Math.sin(x * 0.37 + Math.sin(z * 0.23) * 2) * 0.5 + Math.sin(z * 0.41 - x * 0.17) * 0.5;
+
+// ground: vertex-coloured plane, flat in town, rolling hills outside
+{
+  const SIZE = 140, SEG = 300;
+  const g = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
+  g.rotateX(-Math.PI / 2);
+  const pos = g.attributes.position, col = [];
+  const grassA = new THREE.Color(0x7fae4a), grassB = new THREE.Color(0x5e8f3a), dirt = new THREE.Color(0xc9a46a), dirtEdge = new THREE.Color(0xa88a55);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i), r = Math.hypot(x, z);
+    const hill = Math.max(0, r - TOWN_R - 3);
+    pos.setY(i, hill * hill * 0.012 * (1.2 + noise(x * 0.5, z * 0.5)));
+    c.copy(grassA).lerp(grassB, 0.5 + 0.5 * noise(x * 1.7, z * 1.7));
+    const rd = roadDist(x, z);
+    if (rd < 1.3) c.copy(dirt).lerp(dirtEdge, 0.5 + 0.5 * noise(x * 4, z * 4));
+    else if (rd < 1.7) c.lerp(dirtEdge, (1.7 - rd) / 0.4);
+    col.push(c.r, c.g, c.b);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  const ground = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  ground.receiveShadow = true;
+  scene.add(ground);
+}
+
+const townObjs = [];
+const props = new THREE.Group();
+scene.add(props);
+function put(name, x, z, rot = 0, r = 0, scale = 1) {
+  const o = models[name].clone();
+  o.position.set(x, 0, z);
+  o.rotation.y = rot;
+  o.scale.setScalar(scale);
+  props.add(o);
+  if (r) colliders.push({ x, z, r: r * scale });
+  return o;
+}
+
+const town = [
+  ['building_well_blue', -2.5, 3.2, 0, 0.8, '우물'],
+  ['building_church_blue', 1.5, -9.5, 0, 1.4, '교회'],
+  ['building_tavern_blue', 7, -4, -0.3, 1.3, '여관'],
+  ['building_blacksmith_blue', -6, -3.5, 0.2, 1.3, '대장간'],
+  ['building_market_blue', 7.5, 4.5, -0.6, 1.3, '시장'],
+  ['building_home_A_blue', -4, 7, 0.5, 1.1, '민가'],
+  ['building_home_B_blue', -9, 5, 0.9, 1.1, '민가'],
+  ['building_home_A_blue', 11, -1.5, -1.2, 1.1, '민가'],
+  ['building_home_B_blue', -2.5, -6, 0, 1.1, '민가'],
+  ['building_windmill_blue', -13, -2, 0.4, 1.3, '풍차'],
+  ['building_grain', -12.5, 3, 0, 0.9],
+  ['building_stage_A', 1, 8.5, 2.6, 1.1],
+  ['tent', 10.5, 6.5, -0.5, 0.8],
+  ['barrel', 5.2, 2.6, 0, 0.3], ['barrel', 5.6, 3.1, 1, 0.3], ['crate_A_big', 9.4, 2.6, 0.5, 0.4],
+  ['wheelbarrow', -4.4, -1.6, 1.2, 0.4],
+  ['rock_single_A', 13, 5, 0, 0.5], ['rock_single_A', -10, -7, 2, 0.5],
+  ['tree_single_A', -6.5, -8, 0, 0.5], ['tree_single_B', 5, -9.5, 0, 0.5], ['tree_single_A', 12, -6, 1, 0.5],
+  ['tree_single_B', -1, 11, 2, 0.5], ['tree_single_A', 6, 11, 0, 0.5], ['tree_single_B', -14, 1, 1, 0.5],
+  ['tree_single_A', 14, 1.5, 3, 0.5], ['tree_single_B', -8.5, 10, 0, 0.5],
+];
+for (let [name, x, z, rot, r, label] of town) {
+  x *= SPREAD; z *= SPREAD;
+  const o = put(name, x, z, rot, r, name.startsWith('building') ? BUILD : 1.3);
+  o.traverse(m => { if (m.isMesh) m.material = m.material.clone(); }); // own material so it can fade
+  townObjs.push(o);
+  if (label) labels.push({ x, z, text: label });
+}
+
+// forest and hills beyond the town edge (deterministic scatter)
+let seed = 7;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+for (let i = 0; i < 260; i++) {
+  const a = rnd() * Math.PI * 2, d = TOWN_R + 1.5 + rnd() * 26;
+  const x = Math.cos(a) * d, z = Math.sin(a) * d;
+  if (roadDist(x, z) < 2) continue;
+  const hill = Math.max(0, d - TOWN_R - 3), y = hill * hill * 0.012 * (1.2 + noise(x * 0.5, z * 0.5));
+  const far = d > TOWN_R + 17;
+  const name = far ? (rnd() < 0.5 ? 'mountain_A_grass' : 'hill_single_A') : ['trees_A_large', 'trees_A_medium', 'tree_single_A', 'tree_single_B'][(rnd() * 4) | 0];
+  const o = put(name, x, z, rnd() * 6, 0, far ? 2.5 + rnd() * 2 : 1.2 + rnd() * 0.6);
+  o.position.y = y - 0.05;
+}
+
+// ---------- characters ----------
+function setupCharacter(gltf, keep) {
+  const root = gltf.scene;
+  root.traverse(o => {
+    if (o.isMesh) {
+      o.castShadow = true;
+      o.frustumCulled = false;
+      const n = o.name.replace(/_\d+$/, '');
+      if (/Shield|Sword|Staff|Wand|Spellbook/.test(n) && !keep.includes(n)) o.visible = false;
+    }
+  });
+  const height = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).y;
+  const s = (HS * 0.72) / height;   // a character is about a third of a house tall
+  root.scale.setScalar(s);
+  const mixer = new THREE.AnimationMixer(root);
+  const clip = n => THREE.AnimationClip.findByName(gltf.animations, n);
+  const acts = { idle: mixer.clipAction(clip('Idle')), walk: mixer.clipAction(clip('Walking_A')), run: mixer.clipAction(clip('Running_A')) };
+  acts.idle.play();
+  const ch = { root, mixer, acts, cur: 'idle', pos: new THREE.Vector3(), yaw: 0, speed: 0 };
+  scene.add(root);
+  return ch;
+}
+function setAnim(ch, name) {
+  if (ch.cur === name) return;
+  const from = ch.acts[ch.cur], to = ch.acts[name];
+  to.reset().play();
+  from.crossFadeTo(to, 0.2, false);
+  ch.cur = name;
+}
+
+const hero = setupCharacter(knightGltf, ['1H_Sword', 'Round_Shield']);
+const mage = setupCharacter(mageGltf, ['2H_Staff']);
+const start = new THREE.Vector3(-1.5, 0, 2);
+hero.pos.set(start.x, TOP, start.z);
+mage.pos.set(start.x - HS, TOP, start.z);
+const trail = [];
+
+const WALK = HS * 1.3, RUN = HS * 2.9; // units per second
+const BODY = HS * 0.28;                 // collision radius
+
+function walkable(x, z) {
+  if (Math.hypot(x, z) > TOWN_R && roadDist(x, z) > 1) return false;
+  if (Math.hypot(x, z) > TOWN_R + 12) return false;
+  for (const c of colliders) if (Math.hypot(x - c.x, z - c.z) < c.r + BODY) return false;
+  return true;
+}
+
+// ---------- input ----------
+const keys = new Set();
+addEventListener('keydown', e => keys.add(e.key.toLowerCase()));
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+
+const stick = document.getElementById('stick'), knob = document.getElementById('knob');
+const joy = { id: null, ox: 0, oy: 0, x: 0, y: 0 };
+const look = { id: null, lx: 0, ly: 0 };
+let camYaw = Math.PI * 0.15, camPitch = 0.62;
+const canvas = renderer.domElement;
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  if (e.clientX < innerWidth / 2 && joy.id === null) {
+    Object.assign(joy, { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 });
+    stick.style.left = e.clientX + 'px'; stick.style.top = e.clientY + 'px'; stick.style.display = 'block';
+    knob.style.transform = '';
+  } else if (look.id === null) {
+    Object.assign(look, { id: e.pointerId, lx: e.clientX, ly: e.clientY });
+  }
+  document.getElementById('hint').style.display = 'none';
+});
+canvas.addEventListener('pointermove', e => {
+  if (e.pointerId === joy.id) {
+    let dx = e.clientX - joy.ox, dy = e.clientY - joy.oy;
+    const len = Math.hypot(dx, dy), max = 50;
+    if (len > max) { dx *= max / len; dy *= max / len; }
+    joy.x = dx / max; joy.y = dy / max;
+    knob.style.transform = `translate(${dx}px,${dy}px)`;
+  } else if (e.pointerId === look.id) {
+    camYaw -= (e.clientX - look.lx) * 0.008;
+    camPitch = THREE.MathUtils.clamp(camPitch + (e.clientY - look.ly) * 0.005, 0.35, 1.25);
+    look.lx = e.clientX; look.ly = e.clientY;
+  }
+});
+const release = e => {
+  if (e.pointerId === joy.id) { joy.id = null; joy.x = joy.y = 0; stick.style.display = 'none'; }
+  if (e.pointerId === look.id) look.id = null;
+};
+canvas.addEventListener('pointerup', release);
+canvas.addEventListener('pointercancel', release);
+
+// ---------- labels / toast ----------
+const toast = document.getElementById('toast');
+let lastLabel = null;
+function nearLabel() {
+  let best = null, bd = HS * 3.2;
+  for (const l of labels) {
+    const d = Math.hypot(l.x - hero.pos.x, l.z - hero.pos.z);
+    if (d < bd) { bd = d; best = l; }
+  }
+  if (best !== lastLabel) {
+    lastLabel = best;
+    if (best) toast.textContent = best.text;
+    toast.classList.toggle('on', !!best);
+  }
+}
+
+// ---------- loop ----------
+const clock = new THREE.Clock();
+const camTarget = new THREE.Vector3().copy(hero.pos);
+const tmp = new THREE.Vector3();
+
+function updateHero(dt) {
+  let ix = joy.x, iy = joy.y;
+  if (keys.has('a') || keys.has('arrowleft')) ix -= 1;
+  if (keys.has('d') || keys.has('arrowright')) ix += 1;
+  if (keys.has('w') || keys.has('arrowup')) iy -= 1;
+  if (keys.has('s') || keys.has('arrowdown')) iy += 1;
+  let mag = Math.min(1, Math.hypot(ix, iy));
+  const kb = keys.size > 0 && joy.id === null;
+  const running = kb ? keys.has('shift') : mag > 0.75;
+
+  if (mag > 0.15) {
+    // direction relative to the camera
+    const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
+    const rx = -fz, rz = fx;
+    let dx = rx * ix - fx * iy, dz = rz * ix - fz * iy;
+    const l = Math.hypot(dx, dz); dx /= l; dz /= l;
+    const sp = (running ? RUN : WALK) * dt;
+    const nx = hero.pos.x + dx * sp, nz = hero.pos.z + dz * sp;
+    if (walkable(nx, nz)) { hero.pos.x = nx; hero.pos.z = nz; }
+    else if (walkable(nx, hero.pos.z)) hero.pos.x = nx;
+    else if (walkable(hero.pos.x, nz)) hero.pos.z = nz;
+    const want = Math.atan2(dx, dz);
+    let d = want - hero.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+    hero.yaw += d * Math.min(1, dt * 12);
+    setAnim(hero, running ? 'run' : 'walk');
+    const last = trail[trail.length - 1];
+    if (!last || last.distanceTo(hero.pos) > HS * 0.1) { trail.push(hero.pos.clone()); if (trail.length > 200) trail.shift(); }
+  } else setAnim(hero, 'idle');
+
+  hero.root.position.copy(hero.pos);
+  hero.root.rotation.y = hero.yaw;
+}
+
+function updateMage(dt) {
+  // follow along the hero's path, keeping a fixed gap
+  const gap = HS * 0.9;
+  let target = null, acc = 0;
+  for (let i = trail.length - 1; i > 0; i--) {
+    acc += trail[i].distanceTo(trail[i - 1]);
+    if (acc >= gap) { target = trail[i - 1]; break; }
+  }
+  if (!target) { setAnim(mage, 'idle'); return; }
+  tmp.subVectors(target, mage.pos); tmp.y = 0;
+  const dist = tmp.length();
+  if (dist > HS * 0.05) {
+    const sp = Math.min(dist, Math.max(WALK, dist * 4) * dt);
+    tmp.normalize();
+    mage.pos.addScaledVector(tmp, sp);
+    let d = Math.atan2(tmp.x, tmp.z) - mage.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+    mage.yaw += d * Math.min(1, dt * 10);
+    setAnim(mage, sp / dt > WALK * 1.4 ? 'run' : 'walk');
+  } else setAnim(mage, 'idle');
+  mage.root.position.copy(mage.pos);
+  mage.root.rotation.y = mage.yaw;
+}
+
+function updateCamera(dt) {
+  camTarget.lerp(hero.pos, 1 - Math.exp(-dt * 6));
+  const dist = HS * 10;
+  camera.position.set(
+    camTarget.x + Math.sin(camYaw) * Math.cos(camPitch) * dist,
+    camTarget.y + Math.sin(camPitch) * dist,
+    camTarget.z + Math.cos(camYaw) * Math.cos(camPitch) * dist);
+  camera.lookAt(camTarget.x, camTarget.y + HS * 0.8, camTarget.z);
+  sun.position.set(camTarget.x + 10, camTarget.y + 20, camTarget.z + 6);
+  sun.target.position.copy(camTarget);
+}
+
+// fade buildings that stand between the camera and the hero
+const ray = new THREE.Raycaster();
+const faded = new Set();
+function updateOcclusion() {
+  const head = tmp.copy(hero.pos); head.y += HS * 0.4;
+  const dir = head.clone().sub(camera.position);
+  const far = dir.length();
+  ray.set(camera.position, dir.normalize());
+  ray.far = far;
+  const now = new Set();
+  for (const hit of ray.intersectObjects(townObjs, true)) {
+    let o = hit.object;
+    while (o.parent !== props) o = o.parent;
+    now.add(o);
+  }
+  for (const o of new Set([...faded, ...now])) {
+    const on = now.has(o);
+    o.traverse(m => { if (m.isMesh) { m.material.transparent = on; m.material.opacity = on ? 0.3 : 1; m.material.depthWrite = !on; } });
+  }
+  faded.clear(); now.forEach(o => faded.add(o));
+}
+
+function frame() {
+  const dt = window.__fixedDt || Math.min(clock.getDelta(), 0.05);
+  updateHero(dt);
+  updateMage(dt);
+  hero.mixer.update(dt);
+  mage.mixer.update(dt);
+  updateCamera(dt);
+  updateOcclusion();
+  nearLabel();
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+updateCamera(1);
+frame();
+const ld = document.getElementById('loading');
+ld.style.opacity = 0; setTimeout(() => ld.remove(), 500);
+window.__dbg = { hero, mage, camera, setYaw: y => camYaw = y, keys };
+</script>
+</body>
+</html>
