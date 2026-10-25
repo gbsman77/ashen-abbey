@@ -58,9 +58,9 @@ def recolor(img, cells):
     img.pack()
 RECOLOR = {
  'warrior': {'knight_texture': {(1,0): '5e3b25'}},
- 'mage':    {'mage_texture': {(1,0): '24474a', (2,1): '4a3266'}},
- 'priest':  {'mage_texture': {(0,1): 'efe9da', (2,1): '2f4a7d', (5,0): 'a8884a', (4,0): 'a8884a', (7,1): '3a3550', (3,2): '8a6248'},
-             'rogue_texture': {(1,0): '6e4630'}},
+ 'mage':    {'mage_texture': {(1,0): '1f4f52', (2,1): '553685', (0,1): '2e3a6b', (2,2): '6b4a2e', (5,0): '6b4a2e'}},
+ 'priest':  {'mage_texture': {(0,1): 'f1ebdc', (2,1): '2f4374', (5,0): '6b4a2e', (4,0): 'c9a24a', (7,1): '6b4a2e', (3,2): '6b4a2e', (2,2): '6b4a2e'},
+             'rogue_texture': {(1,0): '7f4f33'}},
 }[who]
 for name, cells in RECOLOR.items(): recolor(bpy.data.images[name], cells)
 
@@ -123,9 +123,50 @@ def tufts(hexcol, size=1.0, n=10):
         parts.append(prim('cone', (x, y, z), rot=(math.radians(rx), math.radians(ry), 0), radius1=0.12*size, depth=0.3*size, vertices=5))
     attach(join(parts, 'HairTufts'), 'head', m)
 
-if who == 'warrior': scarf('b8322c'); tufts('5e3b25')
-if who == 'mage': scarf('a8322e'); glasses()
-if who == 'priest': braids('6e4630')
+def double(m):
+    m.use_backface_culling = False
+    return m
+def cut_front(o, half_deg):
+    import bmesh
+    bm = bmesh.new(); bm.from_mesh(o.data)
+    kill = [f for f in bm.faces if math.degrees(abs(math.atan2(f.calc_center_median().x, -f.calc_center_median().y))) < half_deg]
+    bmesh.ops.delete(bm, geom=kill, context='FACES'); bm.to_mesh(o.data); bm.free()
+    return o
+def cone(z_top, r_top, z_bot, r_bot, verts=28, y=0.0):
+    o = prim('cone', (0, y, (z_top + z_bot)/2), radius1=r_bot, radius2=r_top, depth=z_top - z_bot, vertices=verts, end_fill_type='NOTHING')
+    bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+    return o
+def tabard():
+    red = mat('tabard', 'b8322c'); gold = mat('tabard_trim', 'c9a24a')
+    t = prim('cube', (0, -0.385, 0.42), scale=(0.11, 0.015, 0.2)); attach(t, 'hips', red)
+    e = join([prim('cube', (0, -0.402, 0.36), scale=(0.012, 0.005, 0.07)), prim('cube', (0, -0.402, 0.38), scale=(0.045, 0.005, 0.012))], 'TabardEmblem'); attach(e, 'hips', gold)
+def priest_robe():
+    white = double(mat('robe_white', 'f1ebdc')); navy = mat('robe_navy', '2f4374'); gold = mat('robe_gold', 'c9a24a')
+    sk = cone(0.62, 0.37, 0.12, 0.52); sk.name = 'RobeSkirt'; attach(sk, 'hips', white)
+    tr = prim('torus', (0, 0, 0.13), major_radius=0.52, minor_radius=0.022, major_segments=28, minor_segments=6); tr.name = 'RobeHem'; attach(tr, 'hips', gold)
+    tilt = math.atan((0.52 - 0.37) / 0.5)
+    pn = prim('cube', (0, -0.455, 0.37), rot=(-tilt, 0, 0), scale=(0.12, 0.012, 0.24)); pn.name = 'RobePanel'; attach(pn, 'hips', navy)
+    cr = join([prim('cube', (0, -0.48, 0.26), rot=(-tilt, 0, 0), scale=(0.012, 0.006, 0.08)), prim('cube', (0, -0.475, 0.29), rot=(-tilt, 0, 0), scale=(0.05, 0.006, 0.012))], 'RobeCross'); attach(cr, 'hips', gold)
+    vest = prim('cube', (0, -0.395, 0.86), scale=(0.11, 0.012, 0.3)); vest.name = 'RobeVest'; attach(vest, 'chest', navy)
+    vt = join([prim('cube', (s*0.115, -0.4, 0.86), scale=(0.012, 0.012, 0.3)) for s in (1, -1)], 'RobeVestTrim'); attach(vt, 'chest', gold)
+def mage_cloak():
+    purple = double(mat('cloak', '553685')); gold = mat('cloak_trim', 'c9a24a')
+    c = cut_front(cone(1.2, 0.36, 0.1, 0.66), 30); c.name = 'Cloak'; attach(c, 'chest', purple)
+    hem = cut_front(cone(0.16, 0.645, 0.1, 0.665), 30); hem.name = 'CloakHem'; attach(hem, 'chest', double(gold))
+    hood = prim('uv_sphere', (0, 0.36, 1.3), scale=(0.38, 0.15, 0.17), segments=16, ring_count=8); hood.name = 'Hood'; attach(hood, 'chest', purple)
+    bpy.data.objects.remove(bpy.data.objects['Mage_Cape'])
+
+def drop_bun():
+    # the Mage head has a bun at the back of the head; the sheet has none
+    import bmesh
+    h = bpy.data.objects['Mage_Head']; M = h.matrix_world
+    bm = bmesh.new(); bm.from_mesh(h.data)
+    kill = [f for f in bm.faces if (M @ f.calc_center_median()).y > 0.5]
+    bmesh.ops.delete(bm, geom=kill, context='FACES'); bm.to_mesh(h.data); bm.free()
+
+if who == 'warrior': scarf('b8322c'); tufts('5e3b25'); tabard()
+if who == 'mage': scarf('b8322c'); glasses(); mage_cloak(); drop_bun()
+if who == 'priest': braids('7f4f33'); priest_robe()
 
 # ---- trim animations, export ----
 for a in list(bpy.data.actions):
