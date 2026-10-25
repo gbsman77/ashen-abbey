@@ -326,6 +326,7 @@
     if (w.area) {
       S.mode = 'world'; S.area = w.area; S.wx = w.x; S.wy = w.y; S.wdir = w.dir || 2;
       snapHero();
+      if (window.World3D) World3D.reset(); // 3D 파티를 새 자리에 다시 줄 세운다
       log(area().name + '에 왔다.');
     } else {
       S.mode = 'dungeon';
@@ -1533,6 +1534,7 @@
   // ---------- 지상 (위에서 내려다보는 필드·마을) ----------
   // 옛 드래곤 퀘스트처럼 16×16 도트 타일을 크게 키워 그린다. world/<이름>.png 그림이 있으면 그 그림을 쓴다
   const worldCv = $('world'), wctx = worldCv.getContext('2d');
+  const w3dCv = $('world3d'); // 3D로 보기 (world3d.js)
   const TERRAIN = {
     '.': { tile: 'grass', walk: true },
     ',': { tile: 'flowers', walk: true },
@@ -2183,6 +2185,8 @@
       if (hero.x === S.wx && hero.y === S.wy) { hero.blocked = at; break; } // 벽 앞: 매 장면마다 다시 부딪히지 않는다
     }
     const dist = hero.x !== S.wx || hero.y !== S.wy ? 1 : 0;
+    if (on3D()) { drawWorld3D(dt); return; }
+    if (!w3dCv.hidden) { w3dCv.hidden = true; worldCv.hidden = false; }
     const T = Math.ceil(W / viewCols());
     const viewW = W / T, viewH = H / T;
     const clampC = (c, n, v) => (n <= v ? n / 2 : Math.max(v / 2, Math.min(n - v / 2, c)));
@@ -2259,6 +2263,58 @@
     draws.sort((a, b) => a.z - b.z).forEach((d) => d.f());
     if (S.battle) drawWorldBattle(W, H);
   }
+
+  // ----- 3D로 보기: 같은 격자를 world3d.js 가 3D로 그린다. 전투 창은 2D 캔버스를 투명하게 겹쳐 그린다 -----
+  const W3D_KEY = 'ashen-abbey-3d';
+  let use3D = false;
+  try { use3D = localStorage.getItem(W3D_KEY) === '1'; } catch (e) { /* 저장소 없음 */ }
+  const on3D = () => use3D && inWorld() && !!window.World3D && World3D.ready && World3D.wants(S.area);
+  // 따라오는 파티가 설 수 있는 칸 (사건 칸·사람 칸은 빼고)
+  const open3D = (x, y) => { const ch = wcell(x, y), t = ch && !area().events[ch] && TERRAIN[ch]; return !!(t && t.walk) && !moverAt(x, y); };
+  function drawWorld3D(dt) {
+    updateMovers(dt);
+    let shake = 0;
+    if (cam.bump) {
+      cam.bump.t += dt;
+      const t = cam.bump.t / 0.22;
+      if (cam.bump.shake) shake = 1 - Math.min(1, t);
+      if (t >= 1) cam.bump = null;
+    }
+    w3dCv.hidden = false;
+    worldCv.hidden = !S.battle;
+    World3D.frame({
+      area: S.area, hero: { x: hero.x, y: hero.y, dir: S.wdir }, dt, shake, reduceMotion, ok: open3D,
+      movers: ensureMovers().map((m) => ({ x: m.fx, y: m.fy, npc: m.ev.npc, key: m.hx + ',' + m.hy }))
+    });
+    if (S.battle) { wctx.clearRect(0, 0, worldCv.width, worldCv.height); drawWorldBattle(worldCv.width, worldCv.height); }
+  }
+  function set3D(on) {
+    use3D = on;
+    try { localStorage.setItem(W3D_KEY, on ? '1' : '0'); } catch (e) { /* 저장소 없음 */ }
+    update3DButton();
+    if (on && window.World3D && !World3D.ready) load3D(false);
+    else log(on ? (World3D.wants(S.area) ? '3D로 본다.' : '3D로 보기를 켰다. 지금은 마을 로엘 바깥만 3D로 보인다.') : '2D로 본다.', 'hint');
+    draw();
+  }
+  function load3D(quiet) {
+    if (!window.World3D) return;
+    const box = $('w3dLoad'), bar = box.querySelector('i');
+    box.hidden = false; bar.style.width = '4%';
+    World3D.load((p) => { bar.style.width = Math.round(p * 100) + '%'; })
+      .then(() => {
+        box.hidden = true;
+        if (!quiet && use3D) log(World3D.wants(S.area) ? '3D로 본다.' : '3D로 보기를 켰다. 지금은 마을 로엘 바깥만 3D로 보인다.', 'hint');
+        draw();
+      })
+      .catch(() => { box.hidden = true; use3D = false; update3DButton(); log('3D 화면을 불러오지 못해 2D로 본다.', 'warn'); });
+  }
+  function update3DButton() {
+    const b = $('btn3d');
+    b.setAttribute('aria-pressed', String(use3D));
+    b.title = use3D ? '2D로 보기 (V)' : '3D로 보기 (V)';
+    b.hidden = !S || !inWorld();
+  }
+  $('btn3d').addEventListener('click', () => set3D(!use3D));
 
   // 지상 전투: 화면 가운데 창에 적을 세운다 (적 그림은 던전 전투와 같은 monsters/<sprite>.png)
   function drawWorldBattle(W, H) {
@@ -2564,7 +2620,9 @@
   let glFailed = false;
   function draw() {
     const w = inWorld();
-    view.hidden = w; worldCv.hidden = !w; $('dir').hidden = w;
+    view.hidden = w; worldCv.hidden = !w || (on3D() && !S.battle); $('dir').hidden = w;
+    w3dCv.hidden = !on3D();
+    update3DButton();
     $('noGL').hidden = !(glFailed && !w);
     if (!w) markVisible();
     if (!w && scene && builtFloor === S.floor) refreshProps();
@@ -2595,6 +2653,7 @@
     if (!D.areas[S.area] || !worldOk(S.area, S.wx, S.wy)) Object.assign(S, { area: D.start.area, wx: D.start.x, wy: D.start.y, wdir: D.start.dir });
     if (!D.floors[S.floor]) Object.assign(S, { floor: D.dungeon.floor, x: D.dungeon.x, y: D.dungeon.y, dir: D.dungeon.dir });
     snapHero();
+    if (window.World3D) World3D.reset();
     preloadWorldArt();
     battleUI.hidden = true; clearFoes(); busy = false;
     if (window.BGM) BGM.battleEnd(); // 전투 도중 새로 시작·불러오기
@@ -2652,6 +2711,7 @@
       if (n >= 1 && n <= btns.length) { btns[n - 1].click(); e.preventDefault(); }
       return;
     }
+    if ((e.key === 'v' || e.key === 'V') && inWorld()) { e.preventDefault(); set3D(!use3D); return; } // 3D로 보기 켜고 끄기
     const map = {
       ArrowUp: 'fwd', w: 'fwd', W: 'fwd', ArrowDown: 'back', s: 'back', S: 'back',
       ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right',
@@ -2799,6 +2859,7 @@
 
   function boot(data) {
     startGame(data);
+    if (use3D) load3D(true); // 지난번에 3D로 보고 있었으면 바로 불러 둔다
     if (!data && location.hash !== '#debug') showTitle();
     try {
       if (!THREE) throw new Error('three');
@@ -2817,7 +2878,7 @@
   // 개발용: 주소 끝에 #debug 를 붙이면 콘솔에서 dungeon.warp('b1', x, y, dir) 사용 가능
   if (location.hash === '#debug') {
     window.dungeon = {
-      state: () => S, hero: () => hero, battle: (id) => startBattle(id, null),
+      state: () => S, hero: () => hero, battle: (id) => startBattle(id, null), set3D,
       art: (kind) => monsterTexture(kind).image.toDataURL(), // 코드로 그린 기본 적 그림
       warp: (f, x, y, dir) => { applyEffects([{ warp: D.areas[f] ? { area: f, x, y, dir } : { floor: f, x, y, dir } }]); }
     };
