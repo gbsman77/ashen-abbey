@@ -1,0 +1,177 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>파티 3D 미리보기</title>
+<style>
+  :root { color-scheme:dark; --ink:#f4ead2; --panel:rgba(20,16,12,.74); --line:rgba(244,234,210,.35); --gold:#d9b56c; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#2a2219; font-family:"Noto Serif KR","Apple SD Gothic Neo",serif; color:var(--ink); -webkit-user-select:none; user-select:none; }
+  canvas { display:block; touch-action:none; }
+  #top { position:fixed; left:0; right:0; top:calc(10px + env(safe-area-inset-top)); display:flex; justify-content:center; gap:8px; padding:0 16px; pointer-events:none; }
+  .who { pointer-events:auto; padding:6px 12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; font-size:14px; cursor:pointer; text-align:center; }
+  .who small { display:block; font-size:11px; opacity:.7; }
+  .who.on { border-color:var(--gold); box-shadow:0 0 0 1px var(--gold) inset; }
+  #bottom { position:fixed; left:0; right:0; bottom:calc(12px + env(safe-area-inset-bottom)); display:flex; flex-wrap:wrap; justify-content:center; gap:6px; padding:0 16px; }
+  button { font:inherit; font-size:14px; color:var(--ink); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; cursor:pointer; }
+  button.on { border-color:var(--gold); color:var(--gold); }
+  #loading { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:#1a1510; font-size:18px; z-index:5; transition:opacity .5s; }
+  #credit { position:fixed; right:10px; bottom:calc(64px + env(safe-area-inset-bottom)); font-size:10px; opacity:.6; pointer-events:none; }
+  @media (max-width:520px) { button { padding:7px 9px; font-size:13px; } #credit { bottom:calc(104px + env(safe-area-inset-bottom)); } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+} }
+</script>
+<div id="loading">파티를 불러오는 중…</div>
+<div id="top"></div>
+<div id="bottom"></div>
+<div id="credit">바탕 모델: KayKit Adventurers (Kay Lousberg, CC0) · 색과 소품을 바꿔 만듦</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2a2219);
+scene.fog = new THREE.Fog(0x2a2219, 12, 26);
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(0, 2.6, 8.5);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.0, 0);
+controls.enableDamping = true;
+controls.minDistance = 2.5; controls.maxDistance = 14;
+controls.maxPolarAngle = Math.PI * 0.49;
+
+scene.add(new THREE.HemisphereLight(0xfff2dc, 0x3a3026, 1.5));
+const sun = new THREE.DirectionalLight(0xfff0d8, 1.8);
+sun.position.set(3, 7, 5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5 });
+sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.02;
+scene.add(sun);
+
+// stone dais
+const dais = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.5, 0.3, 48), new THREE.MeshStandardMaterial({ color: 0x6d6255, roughness: 0.95 }));
+dais.position.y = -0.15; dais.receiveShadow = true; scene.add(dais);
+const ring = new THREE.Mesh(new THREE.TorusGeometry(4.2, 0.05, 6, 64), new THREE.MeshStandardMaterial({ color: 0xb08a4a }));
+ring.rotation.x = Math.PI / 2; ring.position.y = 0.01; scene.add(ring);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+const PARTY = [
+  { key: 'warrior', name: '로엔', job: '전사', x: -2.1, weapons: ['1H_Sword', 'Round_Shield'], attack: '1H_Melee_Attack_Chop' },
+  { key: 'priest',  name: '세라', job: '사제', x: 0,    weapons: ['1H_Wand'],                attack: 'Spellcast_Raise' },
+  { key: 'mage',    name: '카일', job: '마법사', x: 2.1, weapons: ['2H_Staff'],              attack: 'Spellcast_Shoot' },
+];
+const ALL_WEAPONS = ['1H_Sword', 'Round_Shield', '1H_Wand', '2H_Staff', 'Spellbook'];
+const MOVES = [
+  ['대기', 'Idle'], ['걷기', 'Walking_A'], ['달리기', 'Running_A'], ['공격', 'attack'],
+  ['피격', 'Hit_A'], ['막기', 'Block'], ['환호', 'Cheer'], ['쓰러짐', 'Death_A'],
+];
+const ONCE = new Set(['attack', 'Hit_A', 'Block', 'Cheer', 'Death_A']);
+
+// one base64-GLB pack per member, shared with the game (models3d/<key>.json)
+const pack = Object.assign({}, ...await Promise.all(PARTY.map(p => fetch('../../models3d/' + p.key + '.json').then(r => r.json()))));
+const loader = new GLTFLoader();
+const parse = b64 => new Promise((ok, fail) => loader.parse(Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer, '', ok, fail));
+const gltfs = await Promise.all(PARTY.map(p => parse(pack[p.key])));
+
+let weaponsOn = true, walkMode = false, selected = null;
+PARTY.forEach((p, i) => {
+  const g = gltfs[i];
+  p.root = g.scene;
+  p.root.position.set(p.x, 0, 0);
+  p.root.traverse(o => {
+    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+    if (ALL_WEAPONS.includes(o.name)) o.userData.weapon = true;
+  });
+  scene.add(p.root);
+  p.mixer = new THREE.AnimationMixer(p.root);
+  p.clips = Object.fromEntries(g.animations.map(c => [c.name, c]));
+  p.mixer.addEventListener('finished', e => { if (e.action === p.current && e.action.getClip().name !== 'Death_A') play(p, walkMode ? 'Walking_A' : 'Idle'); });
+  play(p, 'Idle');
+});
+function showWeapons() {
+  for (const p of PARTY) p.root.traverse(o => { if (o.userData.weapon) o.visible = weaponsOn && p.weapons.includes(o.name); });
+}
+showWeapons();
+
+function play(p, move) {
+  const name = move === 'attack' ? p.attack : move;
+  const clip = p.clips[name]; if (!clip) return;
+  const act = p.mixer.clipAction(clip);
+  act.reset();
+  if (ONCE.has(move)) { act.setLoop(THREE.LoopOnce, 1); act.clampWhenFinished = true; }
+  else act.setLoop(THREE.LoopRepeat, Infinity);
+  act.play();
+  if (p.current && p.current !== act) p.current.crossFadeTo(act, 0.25, false);
+  p.current = act;
+}
+
+// ---------- UI ----------
+const top = document.getElementById('top');
+for (const p of PARTY) {
+  const d = document.createElement('div');
+  d.className = 'who'; d.innerHTML = `${p.name}<small>${p.job}</small>`;
+  d.onclick = () => {
+    selected = selected === p ? null : p;
+    document.querySelectorAll('.who').forEach(x => x.classList.toggle('on', x === d && selected === p));
+  };
+  top.appendChild(d);
+}
+const bottom = document.getElementById('bottom');
+for (const [label, move] of MOVES) {
+  const b = document.createElement('button'); b.textContent = label;
+  b.onclick = () => {
+    if (walkMode) setWalk(false);
+    for (const p of selected ? [selected] : PARTY) play(p, move);
+  };
+  bottom.appendChild(b);
+}
+const wb = document.createElement('button'); wb.textContent = '무기'; wb.className = 'on';
+wb.onclick = () => { weaponsOn = !weaponsOn; wb.classList.toggle('on', weaponsOn); showWeapons(); };
+const cb = document.createElement('button'); cb.textContent = '한 줄로 걷기';
+function setWalk(on) {
+  walkMode = on; cb.classList.toggle('on', on);
+  PARTY.forEach((p, i) => {
+    p.angle = -i * 0.55;
+    if (!on) { p.root.position.set(p.x, 0, 0); p.root.rotation.y = 0; }
+    play(p, on ? 'Walking_A' : 'Idle');
+  });
+}
+cb.onclick = () => setWalk(!walkMode);
+bottom.append(wb, cb);
+
+document.getElementById('loading').style.opacity = 0;
+setTimeout(() => document.getElementById('loading').remove(), 600);
+
+const clock = new THREE.Clock();
+const R = 2.2, SPEED = 0.5;
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  for (const p of PARTY) {
+    p.mixer.update(dt);
+    if (walkMode) {
+      p.angle += SPEED * dt;
+      p.root.position.set(Math.sin(p.angle) * R, 0, Math.cos(p.angle) * R);
+      p.root.rotation.y = p.angle + Math.PI / 2;
+    }
+  }
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
