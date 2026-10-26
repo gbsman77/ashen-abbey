@@ -5,7 +5,7 @@
 흐름: 마을 로엘에서 시작 → 장로에게 이야기를 듣고 → 들판의 길과 다리를 지나 북쪽 산의 수도원으로 → 지하 1·2층을 풀고 제단의 수수께끼로 엔딩. 수도원 입구 칸(지하 1층 1,1)을 다시 밟으면 들판으로 나간다. 여관(10닢)에서 회복, 성당에서 기록.
 
 - `index.html` 화면 구성과 스타일
-- `world3d.js` 3D로 보기 (화면 오른쪽 위 3D 단추, V 키). 지상 지도를 그대로 읽어 3D로 세운다 (들판·마을 로엘·집 안 여섯 곳, 지상 전부). 걷기·사건·저장은 engine.js 격자 그대로. 파티 모델은 맨 위 `PARTY3D`, 마을 소품은 `models3d/town.json`(KayKit Medieval Hexagon), 집 안 소품은 `models3d/interior.json`(KayKit Dungeon Remastered), 들판의 산·바위와 묘지는 `models3d/field.json`(KayKit Medieval Hexagon + Halloween Bits). 모두 CC0, `tools3d/pack_town.mjs`로 묶음. 수도원·광산·사당·마을 문은 코드로 세운다
+- `world3d.js` 3D로 보기 (화면 오른쪽 위 3D 단추, V 키). 지상 지도를 그대로 읽어 3D로 세운다 (들판·마을 로엘·집 안 여섯 곳, 지상 전부). 걷기·사건·저장은 engine.js 격자 그대로. 파티 모델은 맨 위 `PARTY3D`, 마을 소품은 `models3d/town.json`(KayKit Medieval Hexagon), 집 안 소품은 `models3d/interior.json`(KayKit Dungeon Remastered), 들판의 산·바위와 묘지는 `models3d/field.json`(KayKit Medieval Hexagon + Halloween Bits). 모두 CC0, `tools3d/pack_town.mjs`로 묶음. 수도원·광산·사당·마을 문은 코드로 세운다. 3D로 보기에서 싸우면 따로 세운 들판 전투 무대(`buildStage`)로 옮겨, 파티는 3D 모델로 공격·주문·방어·맞기·쓰러짐·환호 동작을 하고 적은 지금의 몬스터 그림 판으로 선다 (전투 규칙·명령 창은 그대로)
 - `engine.js` 이동, 3D 렌더링, 미니맵, 사건 처리 (콘텐츠 없음). 주소 끝에 `#debug`를 붙이면 콘솔에서 `dungeon.warp(층 또는 지역, x, y, 방향)` 사용 가능 (지역: field, town)
 - `data.js` 맵·아이템·사건 데이터. 새 층이나 사건은 여기만 고치면 된다. 기호와 사건 형식은 파일 맨 위 주석 참고.
 
