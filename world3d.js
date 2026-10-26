@@ -21,7 +21,13 @@
   // 몬스터 3D 모델: models3d/mon_<sprite>.json (tools3d/build_monsters.py → pack_monsters.mjs). sprite = data.js monsters 의 sprite
   // h = 전투 무대에서의 키 (주인공 키에 곱한다, 날개 끝까지). 동작 Idle · Attack · Hit · Death (용은 Breath 도)
   // 싸움이 시작될 때 따로 불러오고, 오기 전까지와 파일이 없을 때는 지금처럼 몬스터 그림 판으로 선다
-  const MON3D = { golem: { h: 1.75 }, gravekeeper: { h: 1.6 }, dragon: { h: 2.3 } };
+  const MON3D = {
+    golem: { h: 1.75 }, gravekeeper: { h: 1.6 }, dragon: { h: 2.3 },
+    slime: { h: 0.6 }, horn_rabbit: { h: 0.85 }, rat: { h: 0.6 }, wolf: { h: 0.9 },
+    cave_bat: { h: 0.9 }, rock_golem: { h: 1.1 }, miner: { h: 1.15 }, wisp: { h: 0.9 },
+    grave_crow: { h: 0.75 }, skeleton: { h: 1.2 }, ghoul: { h: 1.2 }, bone_knight: { h: 1.3 },
+    fallen_monk: { h: 1.25 }, gargoyle: { h: 1.3 }, guardian: { h: 1.35 }
+  };
   // 3D로 그리는 지역. 집 안(indoor)은 buildRoom 이 벽·가구를 세운다
   const AREAS = { field: true, town: true, elder_house: true, inn: true, church: true, granny_house: true, smithy: true, home: true };
   // 소품 묶음 (장면 이름 = 소품 이름, tools3d/pack_town.mjs): town = KayKit Medieval Hexagon, interior = KayKit Dungeon Remastered
@@ -222,7 +228,7 @@
       o.castShadow = true; o.frustumCulled = false;
       if (!copies.has(o.material)) {
         const m = o.material.clone();
-        if (tint !== 0xffffff) m.color.multiply(tc);
+        if (tint !== 0xffffff) { m.color.multiply(tc); m.emissive.multiply(tc); }
         m.userData.emissive = m.emissive.clone();
         copies.set(o.material, m);
       }
