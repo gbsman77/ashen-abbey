@@ -1,5 +1,5 @@
 // 3D 지상 (설정의 "3D로 보기"). 걷기·사건·저장 규칙은 engine.js 의 격자 그대로 두고, 같은 지도를 3D로 세워 그리기만 한다.
-// 지금은 마을 로엘 바깥만 3D (AREAS). 집 안과 들판은 2D 그대로.
+// 지금은 마을 로엘 바깥과 집 안 여섯 곳만 3D (AREAS). 들판은 2D 그대로.
 // three.js 는 모듈판(index.html importmap 의 'three')을 켤 때 따로 불러 쓴다. 던전의 three.min.js 와 물체를 섞지 않는다.
 (function () {
   'use strict';
@@ -18,8 +18,10 @@
     child: { h: 0.8 }, elder: { h: 1.0 }, farmer: { h: 1.02 }, granny: { h: 0.92 }, guard: { h: 1.1 }, hermit: { h: 0.98 },
     innkeeper: { h: 1.04 }, merchant: { h: 1.02 }, priest: { h: 1.02 }, smith: { h: 1.1 }, traveler: { h: 1.0 }, woman: { h: 0.98 }
   };
-  const AREAS = { town: true };   // 3D로 그리는 지역
-  const PROPS = 'town';           // models3d/town.json: KayKit Medieval Hexagon 소품 묶음 (장면 이름 = 소품 이름)
+  // 3D로 그리는 지역. 집 안(indoor)은 buildRoom 이 벽·가구를 세운다
+  const AREAS = { town: true, elder_house: true, inn: true, church: true, granny_house: true, smithy: true, home: true };
+  // 소품 묶음 (장면 이름 = 소품 이름, tools3d/pack_town.mjs): town = KayKit Medieval Hexagon, interior = KayKit Dungeon Remastered
+  const PROPS = ['town', 'interior'];
   const HERO_H = 1.1;             // 사람 키 (칸 단위, 한 칸 = 1)
   const MODEL_H = 2.3;            // 파티 모델 원래 키 (KayKit 뼈대와 같은 크기). 무기까지 재면 사람마다 달라져서 고정값으로 줄인다
   const GAP = 0.85;               // 줄 선 사람 사이 거리
@@ -48,7 +50,7 @@
   function load(progress) {
     if (loading) return loading;
     W3.state = 'loading';
-    const step = (() => { let n = 0; const total = 2 + PARTY3D.length; return () => progress && progress(++n / total); })();
+    const step = (() => { let n = 0; const total = 1 + PROPS.length + PARTY3D.length; return () => progress && progress(++n / total); })();
     loading = (async () => {
       const [three, gl, bgu, sku] = await Promise.all([
         import('three'), import('three/addons/loaders/GLTFLoader.js'), import('three/addons/utils/BufferGeometryUtils.js'),
@@ -59,9 +61,12 @@
       const loader = new GLTFLoader();
       const fetchPack = (name) => fetch('models3d/' + name + '.json').then((r) => { if (!r.ok) throw new Error(name); return r.json(); })
         .then((p) => parse(loader, p[name])).then((g) => { step(); return g; });
-      const [town, ...chars] = await Promise.all([fetchPack(PROPS), ...PARTY3D.map((p) => fetchPack(p.key).catch(() => null))]);
+      const [packs, chars] = await Promise.all([
+        Promise.all(PROPS.map((n, i) => (i ? fetchPack(n).catch(() => null) : fetchPack(n)))),
+        Promise.all(PARTY3D.map((p) => fetchPack(p.key).catch(() => null)))
+      ]);
       props = {};
-      for (const s of town.scenes) { s.updateMatrixWorld(true); props[s.name] = s; }
+      for (const pk of packs) if (pk) for (const s of pk.scenes) { s.updateMatrixWorld(true); props[s.name] = s; }
       initRenderer();
       party = chars.map((g, i) => makeMember(g, PARTY3D[i]));
       W3.state = 'ready';
@@ -558,6 +563,7 @@
   }
 
   function buildArea(id) {
+    if (D.areas[id].indoor) return buildRoom(id);
     const t0 = performance.now();
     const A = D.areas[id], map = A.map, rows = map.length, cols = map[0].length;
     const M = materials();
@@ -686,6 +692,342 @@
     return S3;
   }
 
+  // ---------- 집 안 ----------
+  // 벽(I)은 칸마다 세우고, 맨 아래 줄(카메라 쪽)만 낮게 잘라 안이 들여다보이게 한다. 천장은 없고 바깥은 검다 (2D 집 안과 같다)
+  // 가구 글자(q B K J O e Q)는 붙어 있는 같은 글자 묶음 하나를 한 덩어리로 세운다 (engine.js areaBlocks 와 같은 묶음)
+  const ROOM = {
+    elder_house: { rug: ['#7a2424', '#d8b060'], blanket: 0x6a3a7a, shelf: 'books' },
+    inn: { rug: ['#28406e', '#d8c080'], blanket: 0x3a6a9a, shelf: 'kitchen' },
+    church: { floor: 'flags', wall: 'stone', rug: ['#86202a', '#e0b84a'], shelf: 'books' },
+    granny_house: { blanket: 0x5a7a3a, shelf: 'jars' },
+    smithy: { floor: 'flags', wall: 'stone', shelf: 'iron' },
+    home: { blanket: 0xb0703a, shelf: 'kitchen' }
+  };
+  const WALL_H = 1.9, LOW_H = 0.34;
+  const KIT = 0.42;   // Dungeon Remastered 소품 크기 1 = 0.42칸 (사람 키에 맞춘 값)
+
+  function roomMaterials() {
+    const M = materials();
+    if (M.planks) return M;
+    const L = (o) => new THREE.MeshLambertMaterial(o);
+    // 마루: 가로로 깐 널빤지, 이음매는 줄마다 어긋나게
+    const boards = (g, s) => {
+      const n = 8, bh = s / n;
+      for (let r = 0; r < n; r++) {
+        for (let x = -((r * 37) % 5) * s / 5; x < s; ) {
+          const w = s * (0.35 + Math.random() * 0.4), v = Math.random() * 18 | 0;
+          g.fillStyle = 'rgb(' + (150 + v) + ',' + (104 + v) + ',' + (64 + v * 0.6 | 0) + ')';
+          g.fillRect(x, r * bh, w, bh);
+          for (let i = 0; i < 6; i++) { g.fillStyle = 'rgba(80,48,24,0.14)'; g.fillRect(x + Math.random() * w, r * bh + Math.random() * bh, 10 + Math.random() * 30, 1.5); }
+          g.fillStyle = 'rgba(60,34,16,0.8)'; g.fillRect(x, r * bh, 2, bh);
+          x += w;
+        }
+        g.fillStyle = 'rgba(50,28,12,0.85)'; g.fillRect(0, r * bh + bh - 2, s, 2);
+      }
+    };
+    // 돌바닥: 네모 판석
+    const flags = (g, s) => {
+      g.fillStyle = '#4a4540'; g.fillRect(0, 0, s, s);
+      const n = 4, c = s / n;
+      for (let r = 0; r < n; r++) for (let i = 0; i < n; i++) {
+        const v = 128 + Math.random() * 36 | 0;
+        g.fillStyle = 'rgb(' + v + ',' + (v - 6) + ',' + (v - 14) + ')';
+        g.fillRect(i * c + 2, r * c + 2, c - 4, c - 4);
+        for (let k = 0; k < 20; k++) { g.fillStyle = 'rgba(0,0,0,0.06)'; g.fillRect(i * c + Math.random() * c, r * c + Math.random() * c, 3 + Math.random() * 8, 3 + Math.random() * 8); }
+      }
+    };
+    Object.assign(M, {
+      planks: L({ map: canvasTex(256, boards) }),
+      flags: L({ map: canvasTex(256, flags) }),
+      cap: L({ color: 0x2a1f18 }),
+      linen: L({ color: 0xf0e8d8 }),
+      mat: L({ color: 0x9a7444 }), matEdge: L({ color: 0x5e4426 }),
+      ember: new THREE.MeshBasicMaterial({ color: 0xff8a30 }),
+      flame: new THREE.MeshBasicMaterial({ color: 0xffc860, transparent: true, opacity: 0.88, depthWrite: false }),
+      day: new THREE.MeshBasicMaterial({ color: 0xd8ecf6 }),
+      books: [0x8a2c24, 0x2c4a7a, 0x3a6a34, 0x7a5a2a, 0x5a3a6a, 0xb08a4a].map((c) => L({ color: c })),
+      jar: L({ color: 0x9ab8a0, transparent: true, opacity: 0.85 })
+    });
+    return M;
+  }
+  function rugTex(w, h, base, trim) {
+    const P = 64, c = document.createElement('canvas'); c.width = w * P; c.height = h * P;
+    const g = c.getContext('2d');
+    g.fillStyle = trim; g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = base; g.fillRect(6, 6, c.width - 12, c.height - 12);
+    g.strokeStyle = trim; g.lineWidth = 3; g.strokeRect(14, 14, c.width - 28, c.height - 28);
+    g.fillStyle = trim; g.globalAlpha = 0.5; // 마름모 무늬
+    for (let y = 1; y < h * 2; y++) for (let x = 1; x < w * 2; x++) if ((x + y) % 2 === 0) {
+      const cx = x * P / 2, cy = y * P / 2;
+      g.beginPath(); g.moveTo(cx, cy - 8); g.lineTo(cx + 8, cy); g.lineTo(cx, cy + 8); g.lineTo(cx - 8, cy); g.fill();
+    }
+    g.globalAlpha = 1;
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    return t;
+  }
+  // Dungeon Remastered 소품 하나를 복제해 세운다 (집 안은 수가 적어 인스턴싱하지 않는다). s = 배율 또는 [x, y, z] 배율
+  function kit(group, name, x, y, z, s = KIT, r = 0) {
+    if (!props[name]) return null;
+    const o = props[name].clone(true);
+    o.traverse((m) => { if (m.isMesh) m.castShadow = m.receiveShadow = true; });
+    if (Array.isArray(s)) o.scale.set(s[0], s[1], s[2]); else o.scale.setScalar(s);
+    o.position.set(x, y, z); o.rotation.y = r;
+    group.add(o);
+    return o;
+  }
+  function roomBlocks(map, chars) {
+    const seen = {}, out = [];
+    map.forEach((row, y) => [...row].forEach((ch, x) => {
+      if (!chars.includes(ch) || seen[x + ',' + y]) return;
+      let w = 1, h = 1;
+      while (map[y][x + w] === ch) w++;
+      while (map[y + h] && [...Array(w)].every((_, i) => map[y + h][x + i] === ch)) h++;
+      for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) seen[(x + i) + ',' + (y + j)] = true;
+      out.push({ x, y, w, h, ch, cx: x + w / 2, cz: y + h / 2 });
+    }));
+    return out;
+  }
+
+  function buildRoom(id) {
+    const A = D.areas[id], map = A.map, rows = map.length, cols = map[0].length;
+    const M = roomMaterials(), st = ROOM[id] || {};
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
+    scene.add(new THREE.HemisphereLight(0xffe6c4, 0x3a2a1a, 1.2));
+    const light = sun.clone(); light.shadow = sun.shadow.clone(); light.castShadow = true;
+    light.intensity = 1.2; light.color.set(0xffe2b8);
+    scene.add(light, light.target);
+    const S3 = { scene, sun: light, buildings: [], doors: [], npcs: new Map(), cols, rows, A, spray: null, water: null, fires: [], chests: [], indoor: true };
+    const at = (x, y) => (map[y] && map[y][x]) || null;
+    const isWall = (x, y) => at(x, y) === 'I';
+    const inside = (x, y) => x >= 0 && y >= 0 && x < cols && y < rows && !isWall(x, y);
+    const floorAt = (x, y) => { const ch = at(x, y), ev = ch && A.events[ch]; return ch === '_' || ch === 'r' || !!(ev && !ev.icon); };
+    const R = (x, y, k = 0) => hash(x * 13 + k * 101, y * 7 + k * 37);
+    const B = Batch();
+    const stoneWall = st.wall === 'stone', wallMat = stoneWall ? M.stone : M.plaster;
+    // 로컬 좌표(문·창 앞면이 +z)로 만든 상자를 돌려서 붙인다
+    const part = (w, h, d, mat, lx, ly, lz, X, Z, ry) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(lx, ly, lz); B.add(g, mat, X, 0, Z, 0, ry); };
+
+    // 바닥
+    const fg = new THREE.PlaneGeometry(cols, rows); fg.rotateX(-Math.PI / 2); fg.translate(cols / 2, 0, rows / 2);
+    B.add(fg, st.floor === 'flags' ? M.flags : M.planks, 0, 0, 0, 0, 0, 0.5);
+
+    // 벽: 안쪽 면에 나무 보·기둥 (회벽 집), 창은 몇 칸마다
+    const DIRS = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+    map.forEach((row, y) => [...row].forEach((ch, x) => {
+      if (ch !== 'I') return;
+      const low = y === rows - 1, h = low ? LOW_H : WALL_H;
+      B.box(1, h, 1, wallMat, x + 0.5, h / 2, y + 0.5, stoneWall ? 1 : 2);
+      B.box(1, 0.05, 1, M.cap, x + 0.5, h + 0.025, y + 0.5);
+      if (low) return;
+      for (const [dx, dy] of DIRS) {
+        if (!inside(x + dx, y + dy)) continue;
+        const X = x + 0.5 + dx * 0.5, Z = y + 0.5 + dy * 0.5, ry = Math.atan2(dx, dy);
+        if (!stoneWall) {
+          part(1, 0.1, 0.05, M.timber, 0, h - 0.12, 0.02, X, Z, ry);
+          part(1, 0.12, 0.05, M.timber, 0, 0.06, 0.02, X, Z, ry);
+          if ((x + y) % 3 === 0) part(0.1, h, 0.06, M.timber, -0.45, h / 2, 0.02, X, Z, ry);
+        }
+        // 창 (선반·화덕 뒤와 맨 아래 두 줄 옆벽은 빼고)
+        const n = at(x + dx, y + dy), k = dx === 0 ? x : y;
+        if ('JOK'.includes(n) || (dx !== 0 && y >= rows - 2)) continue;
+        if (id === 'church') {
+          if (dx !== 0 || k % 2 !== 1 || Math.abs(x + 0.5 - cols / 2) < 1.5) continue;
+          part(0.48, 1.12, 0.05, M.stone, 0, 1.2, 0.02, X, Z, ry);
+          part(0.36, 0.95, 0.06, M.stained, 0, 1.18, 0.02, X, Z, ry);
+          part(0.36, 0.03, 0.07, M.iron, 0, 1.18, 0.02, X, Z, ry);
+          part(0.03, 0.95, 0.07, M.iron, 0, 1.18, 0.02, X, Z, ry);
+        } else if (k % 3 === 1) {
+          part(0.64, 0.66, 0.05, M.timber, 0, 1.25, 0.02, X, Z, ry);
+          part(0.52, 0.54, 0.06, M.day, 0, 1.25, 0.02, X, Z, ry);
+          part(0.04, 0.54, 0.07, M.timber, 0, 1.25, 0.02, X, Z, ry);
+          part(0.52, 0.04, 0.07, M.timber, 0, 1.25, 0.02, X, Z, ry);
+          part(0.72, 0.05, 0.14, M.timber, 0, 0.92, 0.05, X, Z, ry);
+        }
+      }
+    }));
+
+    // 깔개: 붙어 있는 깔개 칸 묶음마다 한 장 (사람이 선 칸도 바닥이 깔개면 포함)
+    if (st.rug) {
+      const rugAt = (x, y) => { const ch = at(x, y), ev = ch && A.events[ch]; return ch === 'r' || !!(ev && ev.ground === 'r'); };
+      const seen = {};
+      map.forEach((row, y) => [...row].forEach((_, x) => {
+        if (seen[x + ',' + y] || !rugAt(x, y)) return;
+        let x1 = x, y1 = y; const q = [[x, y]]; seen[x + ',' + y] = true;
+        while (q.length) {
+          const [cx, cy] = q.pop(); x1 = Math.max(x1, cx); y1 = Math.max(y1, cy);
+          for (const [dx, dy] of DIRS) { const nx = cx + dx, ny = cy + dy; if (!seen[nx + ',' + ny] && rugAt(nx, ny)) { seen[nx + ',' + ny] = true; q.push([nx, ny]); } }
+        }
+        const w = x1 - x + 1, h = y1 - y + 1;
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.12, h - 0.12), new THREE.MeshLambertMaterial({ map: rugTex(w, h, st.rug[0], st.rug[1]) }));
+        m.rotation.x = -Math.PI / 2; m.position.set(x + w / 2, 0.012, y + h / 2); m.receiveShadow = true;
+        scene.add(m);
+      }));
+    }
+
+    // 가구
+    const blanket = new THREE.MeshLambertMaterial({ color: st.blanket || 0x7a4a6a });
+    for (const b of roomBlocks(map, 'qBKJOeQ')) {
+      const { cx, cz } = b;
+      if (b.ch === 'q') {
+        // 탁자 (KayKit 탁자를 묶음 크기에 맞게 늘림) + 위에 접시·초·병, 양옆에 걸상
+        const tw = b.w - 0.24, td = b.h - 0.24, th = 0.46, big = b.w * b.h > 1;
+        if (!kit(scene, big ? 'table_medium' : 'table_small', cx, 0, cz, [tw / (big ? 2 : 1), th, td / (big ? 2 : 1)])) {
+          B.box(tw, 0.06, td, M.wood, cx, th - 0.03, cz);
+          for (const sx of [-1, 1]) for (const sz of [-1, 1]) B.box(0.07, th, 0.07, M.timber, cx + sx * (tw / 2 - 0.06), th / 2, cz + sz * (td / 2 - 0.06));
+        }
+        const slots = [[-0.45, -0.35], [0.4, 0.3], [0.45, -0.4], [-0.4, 0.4]];
+        const items = id === 'smithy' ? [] : big ? [['plate_food_A', 0.3], ['candle_lit', 0.3], ['bottle_B_green', 0.26], ['plate_small', 0.4]] : [['plate_small', 0.4], ['candle_lit', 0.3]];
+        items.forEach(([n, s], i) => kit(scene, n, cx + slots[i][0] * tw / 2, th, cz + slots[i][1] * td / 2, s, R(b.x, b.y, i) * 6));
+        if (id === 'smithy') { // 작업대: 쇳덩이와 망치
+          for (let i = 0; i < 3; i++) B.box(0.2, 0.06, 0.09, M.iron, cx - 0.05, th + 0.03 + i * 0.06, cz - 0.4 + (i % 2) * 0.04);
+          B.box(0.05, 0.05, 0.36, M.wood, cx + 0.12, th + 0.025, cz + 0.25);
+          B.box(0.16, 0.08, 0.08, M.iron, cx + 0.12, th + 0.05, cz + 0.08);
+        } else for (let j = 0; j < b.h; j++) for (const side of [-1, 1]) {
+          const nx = side < 0 ? b.x - 1 : b.x + b.w;
+          if (floorAt(nx, b.y + j)) kit(scene, 'stool', side < 0 ? b.x + 0.06 : b.x + b.w - 0.06, 0, b.y + j + 0.5, [0.42, 0.56, 0.42]);
+        }
+      } else if (b.ch === 'B') {
+        // 침대: 머리는 북쪽
+        const w = b.w - 0.18, d = b.h - 0.12, z0 = b.y + 0.06, z1 = b.y + b.h - 0.06;
+        B.box(w, 0.2, d, M.wood, cx, 0.16, cz);
+        B.box(w + 0.04, 0.72, 0.08, M.wood, cx, 0.36, z0 + 0.04);
+        B.box(w + 0.04, 0.42, 0.08, M.wood, cx, 0.21, z1 - 0.04);
+        B.box(w - 0.06, 0.1, d - 0.16, M.linen, cx, 0.31, cz);
+        B.box(w - 0.22, 0.09, 0.24, M.linen, cx, 0.4, z0 + 0.24);
+        const bl = d * (b.h > 1 ? 0.62 : 0.5);
+        B.box(w - 0.02, 0.07, bl, blanket, cx, 0.38, z1 - 0.08 - bl / 2);
+      } else if (b.ch === 'K') {
+        // 계산대
+        B.box(b.w - 0.04, 0.62, 0.6, M.door, cx, 0.31, cz, 2);
+        B.box(b.w + 0.04, 0.06, 0.74, M.timber, cx, 0.65, cz);
+        const items = id === 'smithy' ? [['coin_stack_small', 0.3], ['sword_shield', 0.3]] : [['bottle_A_brown', 0.26], ['plate_small', 0.4], ['bottle_C_brown', 0.24], ['candle_lit', 0.3]];
+        items.forEach(([n, s], i) => {
+          const o = kit(scene, n, b.x + 0.5 + i * (b.w - 1) / Math.max(1, items.length - 1), 0.68, cz + (i % 2 ? 0.12 : -0.08), s, R(b.x, i) * 0.6 - 0.3);
+          if (o && n === 'sword_shield') { o.rotation.set(-Math.PI / 2 + 0.05, 0, 0.3); o.position.y = 0.7; }
+        });
+      } else if (b.ch === 'J') {
+        shelf(b);
+      } else if (b.ch === 'O') {
+        hearth(b);
+      } else if (b.ch === 'e') {
+        // 긴 의자: 앉으면 북쪽(제단)을 본다, 등받이는 남쪽
+        const w = b.w - 0.12;
+        B.box(w, 0.06, 0.34, M.wood, cx, 0.28, cz - 0.04);
+        B.box(w, 0.4, 0.05, M.wood, cx, 0.52, cz + 0.16);
+        for (const sx of [-1, 1]) B.box(0.06, 0.66, 0.44, M.timber, cx + sx * w / 2, 0.33, cz);
+      } else if (b.ch === 'Q') {
+        // 제단: 돌 받침에 흰 천, 앞에 붉은 휘장, 양 끝에 촛대
+        const w = b.w - 0.14;
+        B.box(w, 0.6, 0.62, M.stone, cx, 0.3, cz, 1);
+        B.box(w + 0.06, 0.04, 0.68, M.linen, cx, 0.62, cz);
+        B.box(0.56, 0.5, 0.02, M.canvasR, cx, 0.36, cz + 0.32);
+        B.box(0.56, 0.04, 0.025, M.gold, cx, 0.6, cz + 0.33);
+        B.box(0.05, 0.24, 0.03, M.gold, cx, 0.38, cz + 0.335);
+        B.box(0.16, 0.05, 0.03, M.gold, cx, 0.43, cz + 0.335);
+        for (const sx of [-1, 1]) {
+          kit(scene, 'candle_triple', cx + sx * (w / 2 - 0.2), 0.64, cz, 0.36);
+          const c = new THREE.PointLight(0xffb060, 1.6, 4, 1.6); c.position.set(cx + sx * (w / 2 - 0.2), 1.05, cz + 0.1); scene.add(c);
+          S3.fires.push({ light: c, base: 1.6, flames: [] });
+        }
+        // 제단 뒤 벽의 금빛 십자가
+        B.box(0.1, 0.78, 0.04, M.gold, cx, 1.42, b.y - 0.98);
+        B.box(0.46, 0.1, 0.04, M.gold, cx, 1.6, b.y - 0.98);
+      }
+    }
+    function shelf(b) {
+      // 북쪽 벽에 붙은 찬장: 칸 세 개에 책·병·쇳덩이
+      const H = 1.45, dep = 0.36, zb = b.y + 0.02, zc = zb + dep / 2, w = b.w - 0.06, cx = b.cx;
+      B.box(w, H, 0.04, M.timber, cx, H / 2, zb + 0.02);
+      for (const sx of [-1, 1]) B.box(0.06, H, dep, M.wood, cx + sx * (w / 2 - 0.03), H / 2, zc);
+      B.box(w + 0.06, 0.05, dep + 0.04, M.wood, cx, H, zc);
+      const levels = [0.06, 0.52, 0.98];
+      levels.forEach((ly, li) => {
+        B.box(w - 0.08, 0.04, dep, M.wood, cx, ly, zc);
+        let x = b.x + 0.12;
+        let k = 0;
+        while (x < b.x + b.w - 0.14) {
+          const r = R(b.x * 9 + k, b.y + li * 31, 3); k++;
+          const kind = st.shelf;
+          if ((kind === 'books' || (kind === 'kitchen' && li === 2)) && r > 0.12) {
+            const bw = 0.05 + R(k, li, 1) * 0.04, bh = 0.24 + R(k, li, 2) * 0.12;
+            B.box(bw, bh, dep * 0.75, M.books[Math.floor(R(k, li + b.x, 4) * M.books.length)], x + bw / 2, ly + 0.02 + bh / 2, zc);
+            x += bw + 0.008;
+          } else if (kind === 'iron' && li === 0) {
+            B.box(0.22, 0.12, 0.2, M.iron, x + 0.11, ly + 0.08, zc); x += 0.3;
+          } else if (r > 0.25) {
+            const n = ['bottle_A_brown', 'bottle_B_green', 'bottle_C_brown'][Math.floor(R(k, li, 5) * 3)];
+            if (kind === 'jars' && R(k, li, 6) < 0.5) B.add(new THREE.CylinderGeometry(0.06, 0.06, 0.16, 8), M.jar, x + 0.07, ly + 0.1, zc);
+            else kit(scene, n, x + 0.07, ly + 0.02, zc, 0.3, R(k, li) * 6);
+            x += 0.17;
+          } else x += 0.12;
+        }
+      });
+    }
+    function hearth(b) {
+      const forge = b.w > 1, cx = b.cx, zb = b.y, w = b.w - 0.08, dep = 0.6, zc = zb + dep / 2;
+      const flames = [];
+      let fy;
+      if (forge) {
+        // 대장간 화로: 허리 높이 돌 화덕에 숯불, 위로 덮개와 굴뚝
+        B.box(w, 0.56, dep, M.stone, cx, 0.28, zc, 1);
+        const coal = new THREE.Mesh(new THREE.BoxGeometry(w - 0.24, 0.04, dep - 0.2), M.ember); coal.position.set(cx, 0.57, zc); scene.add(coal);
+        B.box(w + 0.06, 0.4, dep + 0.06, M.stone, cx, 1.42, zc, 1);
+        B.box(w * 0.5, WALL_H - 1.6, dep * 0.6, M.stone, cx, 1.6 + (WALL_H - 1.6) / 2, zb + dep * 0.3, 1);
+        fy = 0.58;
+      } else {
+        // 벽난로: 돌 기둥 둘 + 이맛돌 + 선반, 안은 어둡고 장작불
+        B.box(w + 0.1, 0.08, dep + 0.14, M.stone, cx, 0.04, zc + 0.07, 1);
+        for (const sx of [-1, 1]) B.box(0.2, 0.92, dep, M.stone, cx + sx * (w / 2 - 0.1), 0.46, zc, 1);
+        B.box(w, 0.26, dep, M.stone, cx, 1.05, zc, 1);
+        B.box(w + 0.14, 0.06, dep + 0.1, M.timber, cx, 1.21, zc + 0.03);
+        B.box(w - 0.4, 0.84, 0.06, M.dark, cx, 0.5, zb + 0.04);
+        B.box(w * 0.66, WALL_H - 1.24, dep * 0.7, M.stone, cx, 1.24 + (WALL_H - 1.24) / 2, zb + dep * 0.35, 1);
+        for (const r of [-0.4, 0.4]) { const g = new THREE.CylinderGeometry(0.045, 0.045, 0.42, 6); g.rotateZ(Math.PI / 2); g.rotateY(r); B.add(g, M.wood, cx, 0.13, zc + 0.02); }
+        fy = 0.14;
+      }
+      for (let i = 0; i < 3; i++) {
+        const f = new THREE.Mesh(new THREE.ConeGeometry(forge ? 0.07 : 0.09, forge ? 0.18 : 0.3, 6), M.flame);
+        f.position.set(cx + (i - 1) * (forge ? 0.22 : 0.1), fy + (forge ? 0.09 : 0.15), zc + 0.04);
+        f.userData.h = forge ? 0.18 : 0.3; scene.add(f); flames.push(f);
+      }
+      const light = new THREE.PointLight(0xff8a3a, 5, 7, 1.3); light.position.set(cx, fy + 0.4, zc + 0.35);
+      scene.add(light);
+      S3.fires.push({ light, base: 5, flames });
+    }
+
+    // 낱칸 소품과 사건 칸
+    map.forEach((row, y) => [...row].forEach((ch, x) => {
+      const cx = x + 0.5, cz = y + 0.5, ev = A.events[ch];
+      if (ch === 'P') {
+        B.add(new THREE.CylinderGeometry(0.17, 0.12, 0.3, 8), M.pot, cx, 0.15, cz);
+        const g = new THREE.IcosahedronGeometry(0.28, 0); g.scale(1, 1.1, 1);
+        B.add(g, M.leaf, cx, 0.52, cz, 0, R(x, y) * 6);
+        const g2 = new THREE.IcosahedronGeometry(0.17, 0); B.add(g2, M.leafD, cx + 0.12, 0.72, cz - 0.05);
+      } else if (ch === 'v') {
+        kit(scene, id === 'inn' ? 'keg' : 'barrel_large', cx, 0, cz, id === 'inn' ? 0.24 : 0.27, R(x, y) * 6);
+      } else if (ev && ev.icon === 'mat') {
+        // 나가는 문: 발판 + 문틀, 문 밖으로 햇빛
+        B.box(0.84, 0.02, 0.62, M.matEdge, cx, 0.01, cz);
+        B.box(0.72, 0.025, 0.5, M.mat, cx, 0.012, cz);
+        for (const sx of [-1, 1]) B.box(0.1, 0.7, 0.16, M.timber, cx + sx * 0.5, 0.35, cz + 0.2);
+        const sunlit = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.7), M.day); sunlit.rotation.x = -Math.PI / 2; sunlit.position.set(cx, 0.005, cz + 0.85); scene.add(sunlit);
+      } else if (ev && ev.icon === 'chest') {
+        const o = kit(scene, 'chest', cx, 0, cz, 0.3);
+        const lid = o && o.getObjectByName('chest_lid');
+        if (lid) S3.chests.push({ lid, x, y, open: 0 });
+        else if (!o) iconSprite(scene, ev.icon, cx, cz);
+      } else if (ev && ev.icon) {
+        iconSprite(scene, ev.icon, cx, cz);
+      }
+    }));
+    if (id === 'smithy') kit(scene, 'sword_shield', 5.5, 1.62, 1.04, 0.42);
+    if (id === 'inn') kit(scene, 'crates_stacked', 13.5, 0, 8.45, 0.22, 0.4);
+
+    B.build(scene);
+    return S3;
+  }
+
   function makeStall(scene, x, z, rot) {
     const M = materials(), B = Batch();
     B.box(0.86, 0.5, 0.42, M.wood, 0, 0.25, -0.12);
@@ -770,7 +1112,7 @@
   let lastHero = null, clockT = 0;
   const ray = { o: null, d: null };
 
-  // v: { area, hero: {x, y, dir}, moving, movers: [{x, y, npc, key}], ok(x, y), shake, battle, dt, reduceMotion }
+  // v: { area, hero: {x, y, dir}, moving, movers: [{x, y, npc, key}], ok(x, y), done(x, y), shake, battle, dt, reduceMotion }
   function frame(v) {
     if (!W3.ready) return false;
     const canvas = renderer.domElement;
@@ -863,15 +1205,26 @@
       S3.spray.geo.attributes.position.needsUpdate = true;
     }
     if (S3.water) { S3.water.offset.x = Math.sin(clockT * 0.4) * 0.05; S3.water.offset.y = clockT * 0.03; }
+    // 집 안: 불꽃 일렁임, 열린 상자는 뚜껑을 연다
+    if (S3.fires) for (const f of S3.fires) {
+      const n = 0.82 + 0.18 * vnoise(clockT * 6 + f.base * 10, f.light.position.x);
+      f.light.intensity = f.base * n;
+      f.flames.forEach((m, i) => m.scale.set(1, 0.75 + 0.5 * vnoise(clockT * 8 + i * 3, i), 1));
+    }
+    if (S3.chests) for (const c of S3.chests) {
+      c.open += ((v.done && v.done(c.x, c.y) ? 1 : 0) - c.open) * Math.min(1, dt * 6);
+      c.lid.rotation.x = -c.open * 1.2;
+    }
 
     // 카메라: 남쪽 위에서 비스듬히 내려다본다 (위 = 북쪽, 패드 방향 그대로). 화면 폭에 칸이 10~13개 보이게
-    const aspect = w / h, across = aspect < 1.45 ? 10.5 : 12.5;
+    // 집 안은 방 폭에 맞춰 더 가까이, 세로는 방 가운데 근처만 따라간다
+    const aspect = w / h, across = S3.indoor ? Math.min(aspect < 1.45 ? 10.5 : 12.5, S3.cols + 0.6) : aspect < 1.45 ? 10.5 : 12.5;
     const fovR = THREE.MathUtils.degToRad(camera.fov);
     const dist = across / (2 * Math.tan(fovR / 2) * aspect) * 1.02;
     const pitch = THREE.MathUtils.degToRad(52);
     const halfW = across / 2;
     const tx = S3.cols <= across ? S3.cols / 2 : Math.max(halfW - 1.2, Math.min(S3.cols - halfW + 1.2, hx));
-    const tz = Math.max(3.2, Math.min(S3.rows - 1.8, hz));
+    const tz = S3.indoor ? Math.max(S3.rows / 2 - 0.6, Math.min(S3.rows / 2 + 0.4 + Math.max(0, S3.rows - 9) * 0.6, hz)) : Math.max(3.2, Math.min(S3.rows - 1.8, hz));
     if (!camT.ok || v.reduceMotion) { camT.x = tx; camT.z = tz; camT.ok = true; }
     const k = 1 - Math.exp(-dt * 7);
     camT.x += (tx - camT.x) * k; camT.z += (tz - camT.z) * k;
