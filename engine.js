@@ -539,8 +539,8 @@
   let foeSprites = [];   // 3D 화면 위 적 스프라이트
 
   // 3D로 보기의 전투 무대(world3d.js)에 파티 동작·효과를 알린다. 2D 화면이면 아무 일도 없다
-  const act3D = (m, kind, arg) => { if (on3D()) World3D.act(S.party.indexOf(m), kind, arg); };
-  const fx3D = (kind, arg) => { if (on3D()) World3D.fx(kind, arg); };
+  const act3D = (m, kind, arg) => { if (on3D() || battleIn3D()) World3D.act(S.party.indexOf(m), kind, arg); };
+  const fx3D = (kind, arg) => { if (on3D() || battleIn3D()) World3D.fx(kind, arg); };
 
   function startBattle(mid, fromKey) {
     const mon = D.monsters[mid];
@@ -1096,7 +1096,7 @@
       sp.renderOrder = 10 + i;
       sp.visible = f.hp > 0;
       scene.add(sp);
-      const fs = { sp, kind: mon.sprite, base: sp.position.clone(), look, tint, hit: 0, lunge: 0, dying: f.hp > 0 ? 0 : 1, phase: Math.random() * 6 };
+      const fs = { sp, art, kind: mon.sprite, base: sp.position.clone(), look, tint, hit: 0, lunge: 0, dying: f.hp > 0 ? 0 : 1, phase: Math.random() * 6 };
       dressFoe(fs, art);
       foeSprites.push(fs);
     });
@@ -1506,6 +1506,10 @@
     for (const p of props) if (p.anim && p.group.visible) p.anim(clock);
     animateFoes(dt);
     for (const p of props) if (p.glow && p.glow.visible) p.glow.material.opacity = 0.7 + Math.sin(clock * 3 + p.group.position.x) * 0.3;
+    // 3D로 보기를 켰으면 던전 전투도 3D 전투 무대(world3d.js)에서. 1인칭 화면은 그동안 그리지 않는다
+    const b3 = battleIn3D();
+    view.hidden = b3; w3dCv.hidden = !b3; $('dir').hidden = b3;
+    if (b3) { drawBattle3D(dt, cam.bump && cam.bump.shake ? 1 - Math.min(1, cam.bump.t / 0.22) : 0); requestAnimationFrame(frame); return; }
 
     // 먼지: 카메라 주변 상자 안에서 떠돈다
     if (dust.geometry.attributes.position.count) {
@@ -2279,6 +2283,12 @@
   let use3D = false;
   try { use3D = localStorage.getItem(W3D_KEY) === '1'; } catch (e) { /* 저장소 없음 */ }
   const on3D = () => use3D && inWorld() && !!window.World3D && World3D.ready && World3D.wants(S.area);
+  // 던전 전투를 3D 무대에서 (광산 m* · 묘지 c* · 수도원 b* 무대)
+  const battleIn3D = () => use3D && !inWorld() && !!S.battle && !!window.World3D && World3D.ready && foeSprites.length > 0;
+  const STAGE_OF = { m: 'mine', c: 'crypt', b: 'abbey' };
+  function drawBattle3D(dt, shake) {
+    World3D.frame({ area: S.area, hero: { x: 0, y: 0, dir: 0 }, dt, shake, reduceMotion, movers: [], ok: () => false, done: () => false, flag: () => false, battle: battle3D() });
+  }
   // 따라오는 파티가 설 수 있는 칸 (사건 칸·사람 칸은 빼고)
   const open3D = (x, y) => { const ch = wcell(x, y), t = ch && !area().events[ch] && TERRAIN[ch]; return !!(t && t.walk) && !moverAt(x, y); };
   function drawWorld3D(dt) {
@@ -2305,6 +2315,7 @@
     const mon = D.monsters[B.mid], look = foeLook(mon.sprite), art = foeSprites[0].art;
     return {
       ref: B, img: art.tex.image, aspect: art.aspect || 1, scale: look.scale, tint: mon.tint != null ? mon.tint : look.tint,
+      sprite: mon.sprite, stage: inWorld() ? 'field' : STAGE_OF[S.floor[0]] || 'abbey',
       glow: !!look.glow && !art.custom, fly: !!look.glow || look.y > look.scale * 0.6,
       foes: foeSprites.map((f) => ({ hit: f.hit, lunge: f.lunge, dying: f.dying })),
       down: S.party.map((m) => m.hp <= 0), won: !B.foes.some((f) => f.hp > 0) && S.party.some((m) => m.hp > 0)
@@ -2642,8 +2653,8 @@
   let glFailed = false;
   function draw() {
     const w = inWorld();
-    view.hidden = w; worldCv.hidden = !w || on3D(); $('dir').hidden = w;
-    w3dCv.hidden = !on3D();
+    view.hidden = w || battleIn3D(); worldCv.hidden = !w || on3D(); $('dir').hidden = w || battleIn3D();
+    w3dCv.hidden = !(on3D() || battleIn3D());
     update3DButton();
     $('noGL').hidden = !(glFailed && !w);
     if (!w) markVisible();

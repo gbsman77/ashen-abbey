@@ -18,11 +18,15 @@
     child: { h: 0.8 }, elder: { h: 1.0 }, farmer: { h: 1.02 }, granny: { h: 0.92 }, guard: { h: 1.1 }, hermit: { h: 0.98 },
     innkeeper: { h: 1.04 }, merchant: { h: 1.02 }, priest: { h: 1.02 }, smith: { h: 1.1 }, traveler: { h: 1.0 }, woman: { h: 0.98 }
   };
+  // 몬스터 3D 모델: models3d/mon_<sprite>.json (tools3d/build_monsters.py → pack_monsters.mjs). sprite = data.js monsters 의 sprite
+  // h = 전투 무대에서의 키 (주인공 키에 곱한다, 날개 끝까지). 동작 Idle · Attack · Hit · Death (용은 Breath 도)
+  // 싸움이 시작될 때 따로 불러오고, 오기 전까지와 파일이 없을 때는 지금처럼 몬스터 그림 판으로 선다
+  const MON3D = { golem: { h: 1.75 }, gravekeeper: { h: 1.6 }, dragon: { h: 2.3 } };
   // 3D로 그리는 지역. 집 안(indoor)은 buildRoom 이 벽·가구를 세운다
   const AREAS = { field: true, town: true, elder_house: true, inn: true, church: true, granny_house: true, smithy: true, home: true };
   // 소품 묶음 (장면 이름 = 소품 이름, tools3d/pack_town.mjs): town = KayKit Medieval Hexagon, interior = KayKit Dungeon Remastered
-  // field = Medieval Hexagon 산·바위 + KayKit Halloween Bits 묘지 (납골당·비석·마른 나무·등불)
-  const PROPS = ['town', 'interior', 'field'];
+  // field = Medieval Hexagon 산·바위 + KayKit Halloween Bits 묘지 (납골당·비석·마른 나무·등불), dungeon = Dungeon Remastered 벽·기둥·바닥 (던전 전투 무대)
+  const PROPS = ['town', 'interior', 'field', 'dungeon'];
   const HERO_H = 1.1;             // 사람 키 (칸 단위, 한 칸 = 1)
   const MODEL_H = 2.3;            // 파티 모델 원래 키 (KayKit 뼈대와 같은 크기). 무기까지 재면 사람마다 달라져서 고정값으로 줄인다
   const GAP = 0.85;               // 줄 선 사람 사이 거리
@@ -194,6 +198,50 @@
     acts.idle.play(); acts.idle.time = Math.random() * acts.idle.getClip().duration;
     acts.walk.timeScale = 0.8;
     return { root: wrap, mixer, acts, cur: 'idle', yaw: null, still: 1, model: true, px: null, pz: null };
+  }
+
+  // ---------- 몬스터 ----------
+  const monGltf = {};   // sprite → gltf | 'loading' | 'failed'
+  function monModel(sprite) {
+    const g = monGltf[sprite];
+    if (g && g !== 'loading' && g !== 'failed') return g;
+    if (!g && MON3D[sprite]) {
+      monGltf[sprite] = 'loading';
+      fetch('models3d/mon_' + sprite + '.json').then((r) => { if (!r.ok) throw new Error(sprite); return r.json(); })
+        .then((p) => parse(new GLTFLoader(), p['mon_' + sprite]))
+        .then((gl) => { monGltf[sprite] = gl; }, () => { monGltf[sprite] = 'failed'; });
+    }
+    return null;
+  }
+  // 적 하나: 재질은 저마다 따로 (맞으면 붉게 번쩍이고 쓰러지면 흐려진다), tint 는 같은 모델을 다른 빛깔 적으로 쓸 때
+  function makeFoeModel(gltf, def, tint) {
+    const root = cloneSkinned(gltf.scene), copies = new Map();
+    const tc = new THREE.Color(tint);
+    root.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = true; o.frustumCulled = false;
+      if (!copies.has(o.material)) {
+        const m = o.material.clone();
+        if (tint !== 0xffffff) m.color.multiply(tc);
+        m.userData.emissive = m.emissive.clone();
+        copies.set(o.material, m);
+      }
+      o.material = copies.get(o.material);
+    });
+    const box = new THREE.Box3().setFromObject(root), H = box.max.y - box.min.y || 1;
+    const k = HERO_H * def.h / H;
+    root.scale.setScalar(k);
+    const wrap = new THREE.Group(); wrap.add(root);
+    const mixer = new THREE.AnimationMixer(root), acts = {};
+    for (const [key, name] of [['idle', 'Idle'], ['attack', 'Attack'], ['hit', 'Hit'], ['death', 'Death'], ['breath', 'Breath']]) {
+      const c = THREE.AnimationClip.findByName(gltf.animations, name);
+      if (!c) continue;
+      acts[key] = mixer.clipAction(c);
+      if (key !== 'idle') { acts[key].setLoop(THREE.LoopOnce, 1); acts[key].clampWhenFinished = true; }
+    }
+    if (acts.idle) { acts.idle.play(); acts.idle.time = Math.random() * acts.idle.getClip().duration; }
+    return { root: wrap, mixer, acts, cur: 'idle', mats: [...copies.values()], h: HERO_H * def.h, w: Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * k,
+      jaw: root.getObjectByName('jaw') || root.getObjectByName('head') };
   }
 
   // ---------- 땅 그림 (지도 한 칸 = PPT 픽셀, 둘레 MARGIN 칸까지. 넓은 들판은 칸당 픽셀을 줄인다) ----------
@@ -1449,15 +1497,17 @@
   function iconSprite(scene, icon, x, z) { const g = billboard(icon, 1.1); g.position.set(x, 0, z); scene.add(g); }
 
   // ---------- 전투 무대 ----------
-  // 3D로 보기에서 싸우면 따로 세운 들판 무대로 옮겨 싸운다. 파티는 오른쪽에 3D 모델로, 적은 왼쪽에 지금 쓰는 몬스터 그림 판으로 선다
+  // 3D로 보기에서 싸우면 따로 세운 무대로 옮겨 싸운다 (지상은 들판, 던전은 광산·묘지·수도원 무대). 파티는 오른쪽에 3D 모델로,
+  // 적은 왼쪽에 몬스터 3D 모델(MON3D)로, 모델이 없으면 지금 쓰는 몬스터 그림 판으로 선다
   // 전투 규칙·명령 창은 engine.js 그대로. engine 이 매 장면 v.battle(적 연출 상태)을 넘기고, 행동마다 W3.act / W3.fx 를 부른다
   const PARTY_SPOT = [[1.05, -0.1], [2.0, -0.95], [2.35, 0.75]];   // 파티 순서대로 [x, z] (x 오른쪽, z 카메라 쪽). 전사가 앞에 선다
   const ONCE = new Set(['slash', 'swing', 'cast', 'raise', 'guard', 'hit']);
-  let stage = null, bt = null;   // bt = 지금 전투 { ref, foes, fx, steps, saved }
+  const stages = {};             // 무대 이름 → { scene, sun, flick }
+  let stage = null, bt = null;   // bt = 지금 전투 { ref, theme, foes, fx, steps, saved }
   const imgTex = new WeakMap();
   let dotTex = null;
 
-  function buildStage() {
+  function buildFieldStage() {
     const scene = new THREE.Scene();
     const SKY = 0xa8cfe0;
     scene.background = new THREE.Color(SKY);
@@ -1522,20 +1572,123 @@
     return { scene, sun: light };
   }
 
+  // 던전 무대: 어두운 방에 횃불. 수도원 = 아치 벽·기둥·붉은 깃발, 묘지 = 금 간 벽·비석·푸른 빛, 광산 = 바위벽·나무 버팀목·등불·푸른 수정
+  const STAGE_LOOK = {
+    abbey: { bg: 0x17131d, fog: [10, 26], sky: 0x9a90b8, ground: 0x2c241c, amb: 0.85, key: 0xc8c0ff, keyI: 0.6, floor: 'floor_tile_large',
+      walls: ['wall_arched', 'wall', 'wall_arched', 'wall_broken', 'wall_arched', 'wall', 'wall_arched'], torch: 0xffa048 },
+    crypt: { bg: 0x0d1315, fog: [9, 24], sky: 0x8ab4b0, ground: 0x1c2420, amb: 0.8, key: 0xa8e0d0, keyI: 0.55, floor: 'floor_tile_large',
+      walls: ['wall', 'wall_broken', 'wall', 'wall', 'wall_broken', 'wall', 'wall'], torch: 0xffb060 },
+    mine: { bg: 0x110c08, fog: [9, 24], sky: 0xc8a882, ground: 0x2a2016, amb: 0.8, key: 0xffd8a8, keyI: 0.55, floor: 'floor_dirt_large_rocky', torch: 0xffb050 }
+  };
+  function buildDungeonStage(theme) {
+    const L = STAGE_LOOK[theme] || STAGE_LOOK.abbey, K = 0.62, T = 4 * K;   // 던전 조각 한 칸 4 → T
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(L.bg);
+    scene.fog = new THREE.Fog(L.bg, L.fog[0], L.fog[1]);
+    scene.add(new THREE.HemisphereLight(L.sky, L.ground, L.amb));
+    const light = new THREE.DirectionalLight(L.key, L.keyI); light.castShadow = true;
+    light.shadow.mapSize.set(1024, 1024);
+    Object.assign(light.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, near: 1, far: 40 });
+    light.shadow.bias = -0.0006; light.shadow.normalBias = 0.03;
+    light.position.set(3, 12, 8); light.target.position.set(0, 0, 0);
+    scene.add(light, light.target);
+    const R = (i, k) => hash(i * 29 + k * 113, k * 5 + 11);
+    const flick = [];
+    const lamp = (x, y, z, color, power = 9, dist = 7) => {
+      const l = new THREE.PointLight(color, power, dist, 1.4); l.position.set(x, y, z); scene.add(l);
+      flick.push({ l, base: power, ph: flick.length * 1.9 });
+    };
+    // 바닥
+    const tiles = [];
+    for (let x = -4; x <= 4; x++) for (let z = -2; z <= 2; z++) tiles.push({ x: x * T, y: -0.03, z: z * T - 0.6, s: K, r: (Math.floor(R(x + 9, z + 9) * 4)) * Math.PI / 2 });
+    scatter(scene, L.floor, tiles);
+    const backZ = -4.4;
+    if (theme === 'mine') {
+      // 바위벽: 울퉁불퉁한 바위 덩이를 뒤와 옆으로 쌓고, 나무 버팀목과 등불, 벽에 박힌 푸른 수정
+      const rockGeo = new THREE.IcosahedronGeometry(1, 1), pos = rockGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) { const k = 0.82 + hash(Math.round(pos.getX(i) * 50) + 7, Math.round(pos.getY(i) * 50) * 3 + Math.round(pos.getZ(i) * 50)) * 0.36; pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k, pos.getZ(i) * k); }
+      rockGeo.computeVertexNormals();
+      const boulders = [], RC = [0x5a4a3a, 0x4a3e32, 0x66553f, 0x3e342b];
+      for (let i = 0; i < 26; i++) {   // 뒤 벽: 아래 큰 덩이, 위 작은 덩이
+        const up = i >= 13, j = i % 13;
+        boulders.push({ x: -9.5 + j * 1.6 + R(i, 1) * 0.6, y: up ? 2.2 + R(i, 2) * 0.6 : 0.6, z: backZ - 0.5 - R(i, 3) * 0.6, sx: 1.1 + R(i, 4) * 0.6, sy: up ? 1.0 + R(i, 5) * 0.5 : 1.3 + R(i, 5) * 0.5, sz: 0.9 + R(i, 6) * 0.4, r: R(i, 7) * 6, color: RC[i % 4] });
+      }
+      for (let i = 0; i < 10; i++) for (const sd of [-1, 1]) boulders.push({ x: sd * (8.2 + R(i, 8) * 0.6), y: 0.7 + (i % 2) * 1.2, z: backZ + 0.6 + Math.floor(i / 2) * 1.5, sx: 1.0, sy: 1.2 + R(i, 9) * 0.4, sz: 1.2, r: R(i, 10) * 6, color: RC[(i + 1) % 4] });
+      instances(scene, rockGeo, new THREE.MeshLambertMaterial({ flatShading: true }), boulders);
+      const wood = new THREE.MeshLambertMaterial({ color: 0x6b4a2c }), dark = new THREE.MeshLambertMaterial({ color: 0x4a3220 });
+      for (const bx of [-4.2, 3.2]) {
+        const g = new THREE.Group();
+        for (const dx of [-0.95, 0.95]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.5, 0.2), wood); post.position.set(dx, 1.25, 0); g.add(post); }
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.22, 0.24), dark); beam.position.y = 2.5; g.add(beam);
+        g.traverse((m) => { if (m.isMesh) m.castShadow = m.receiveShadow = true; });
+        g.position.set(bx, 0, backZ + 0.9); scene.add(g);
+      }
+      kit(scene, 'post_lantern', -1.1, 0, backZ + 0.7, 0.55, 0); lamp(-1.1, 1.75, backZ + 1.2, L.torch, 10, 8);
+      kit(scene, 'post_lantern', 5.6, 0, backZ + 1.6, 0.55, 0); lamp(5.6, 1.75, backZ + 2.1, L.torch, 8, 7);
+      kit(scene, 'barrel_small', -5.6, 0, backZ + 1.4, 0.5, 0.4); kit(scene, 'barrel_small', -5.0, 0, backZ + 1.1, 0.42, 1.2);
+      kit(scene, 'box_stacked', 6.4, 0, backZ + 0.9, 0.32, 0.3); kit(scene, 'rubble_large', -7.2, 0, -0.6, 0.28, 1.2);
+      // 푸른 수정 무리 (빛난다)
+      const cry = new THREE.MeshStandardMaterial({ color: 0x9ad8ff, emissive: 0x2a7cff, emissiveIntensity: 1.2, roughness: 0.3, flatShading: true });
+      const geo = new THREE.ConeGeometry(0.12, 0.7, 6);
+      for (const [cx, cz, n] of [[-6.4, backZ + 0.9, 5], [1.4, backZ + 0.4, 4], [7.0, backZ + 2.8, 4], [-3.0, backZ + 0.3, 3]]) {
+        for (let i = 0; i < n; i++) {
+          const c = new THREE.Mesh(geo, cry), sc_ = 0.6 + R(i + cx * 3, 20) * 0.9;
+          c.scale.setScalar(sc_); c.position.set(cx + (R(i, 21) - 0.5) * 0.6, 0.3 * sc_, cz + (R(i, 22) - 0.5) * 0.4);
+          c.rotation.set((R(i, 23) - 0.5) * 0.9, R(i, 24) * 6, (R(i, 25) - 0.5) * 0.9); scene.add(c);
+        }
+        lamp(cx, 0.8, cz + 0.4, 0x5aa8ff, 4, 4);
+      }
+    } else {
+      // 뒤 벽과 옆 벽, 벽 앞의 기둥
+      L.walls.forEach((n, i) => kit(scene, n, (i - 3) * T, 0, backZ, K, 0));
+      for (const sd of [-1, 1]) for (let i = 0; i < 3; i++) kit(scene, i === 1 && theme === 'crypt' ? 'wall_broken' : 'wall', sd * (3.5 * T), 0, backZ + T * (i + 0.5), K, Math.PI / 2);
+      for (const x of [-2.5, 2.5]) kit(scene, theme === 'abbey' ? 'pillar_decorated' : 'pillar', x * T / 1.6, 0, backZ + 0.75, K * 0.9, 0);
+      // 횃불 (벽에 걸고 따뜻한 빛)
+      for (const x of [-1.5 * T, 0, 1.5 * T]) { kit(scene, 'torch_mounted', x, 1.3, backZ + 0.32, K, 0); lamp(x, 1.75, backZ + 0.9, L.torch, 9, 7); }
+      if (theme === 'abbey') {
+        for (const x of [-T, T]) kit(scene, 'banner_patternA_red', x, 0.1, backZ - 0.1, K, 0);
+        kit(scene, 'candle_triple', -4.2, 0, backZ + 1.3, 0.8, 0.3); kit(scene, 'candle_triple', 4.6, 0, backZ + 1.6, 0.8, 2);
+        kit(scene, 'rubble_large', 6.6, 0, -0.4, 0.3, -1.1); kit(scene, 'barrel_small', -6.4, 0, backZ + 1.2, 0.5, 0.5);
+      } else {
+        // 묘지: 비석과 무덤, 촛불, 바닥에 깔린 푸른 빛
+        const graves = [[-5.6, backZ + 1.1, 'grave_A', 0.45, 0.2], [-4.0, backZ + 0.9, 'gravestone', 0.5, -0.1], [-6.6, -1.0, 'gravemarker_A', 0.6, 1.2],
+          [4.2, backZ + 1.0, 'grave_B', 0.45, -0.15], [5.8, backZ + 1.3, 'gravestone', 0.5, 0.2], [6.8, -0.6, 'gravemarker_B', 0.6, -1.3], [-1.6, backZ + 0.8, 'gravemarker_A', 0.55, 0.1]];
+        for (const [x, z, n, sc_, r] of graves) kit(scene, n, x, 0, z, sc_, r);
+        kit(scene, 'candle_triple', -3.0, 0, backZ + 1.4, 0.8, 0.3); kit(scene, 'candle_triple', 3.2, 0, backZ + 1.5, 0.8, 1.5);
+        lamp(0, 0.6, -1.5, 0x8fd8e0, 3, 8);
+      }
+    }
+    return { scene, sun: light, flick };
+  }
   function foeTex(img) {
     let t = imgTex.get(img);
     if (!t) { t = new THREE.CanvasTexture(img); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; imgTex.set(img, t); }
     return t;
   }
-  // 적 그림 판: 아래 끝이 땅에 닿게 세우고 발밑에 그림자. 나는 적(fly)은 조금 떠 있다
+  // 적: 3D 모델이 있으면 모델로 (파티 쪽을 보고 조금 카메라 쪽으로 돌아선다), 없으면 그림 판
+  // 그림 판은 아래 끝이 땅에 닿게 세우고 발밑에 그림자. 나는 적(fly)은 조금 떠 있다
   function setupBattle(b) {
-    if (!stage) stage = buildStage();
+    const theme = b.stage || 'field';
+    stage = stages[theme] || (stages[theme] = theme === 'field' ? buildFieldStage() : buildDungeonStage(theme));
     if (bt) clearFoes3D();
     else bt = { saved: party.map((m) => ({ pos: m.pos.clone(), yaw: m.yaw })), fx: [], steps: party.map(() => null) };
-    bt.ref = b.ref; bt.img = b.img; bt.foes = [];
+    bt.ref = b.ref; bt.img = b.img; bt.theme = theme; bt.foes = []; bt.breath = false;
+    const gl = MON3D[b.sprite] && monModel(b.sprite);
+    bt.model = !!gl;
     const n = b.foes.length, h = 0.7 * b.scale, w = h * b.aspect, gap = Math.max(1.05, w * 0.9);
     b.foes.forEach((f, i) => {
       const g = new THREE.Group();
+      if (gl) {
+        const M = makeFoeModel(gl, MON3D[b.sprite], b.tint);
+        M.root.rotation.y = Math.PI / 2 - 0.3;
+        g.add(M.root);
+        const mg = Math.max(1.05, Math.min(M.w, 3) * 0.75);
+        const base = new THREE.Vector3(-1.3 - Math.min(M.w, 3) * 0.25 - (n > 1 && i % 2 ? 0.55 : 0), 0, (i - (n - 1) / 2) * mg);
+        g.position.copy(base);
+        stage.scene.add(g);
+        bt.foes.push({ g, model: M, base, h: M.h, w: M.w, fly: false, phase: i * 1.7, pl: 0, ph: 0, dead: f.dying >= 1 ? 99 : 0 });
+        return;
+      }
       const mat = new THREE.SpriteMaterial({ map: foeTex(b.img), color: b.tint, transparent: true, alphaTest: 0.03, depthWrite: false,
         blending: b.glow ? THREE.AdditiveBlending : THREE.NormalBlending });
       const sp = new THREE.Sprite(mat);
@@ -1553,13 +1706,17 @@
     party.forEach((m, i) => { const [x, z] = PARTY_SPOT[i] || [2.5, 0]; m.pos.set(x, 0, z); m.yaw = -Math.PI / 2 + 0.4; setAnim(m, 'idle'); });
   }
   function clearFoes3D() {
-    for (const f of bt.foes) { stage.scene.remove(f.g); f.sp.material.dispose(); f.sh.geometry.dispose(); }
+    for (const f of bt.foes) {
+      f.g.parent && f.g.parent.remove(f.g);
+      if (f.model) { f.model.mixer.stopAllAction(); for (const m of f.model.mats) m.dispose(); }
+      else { f.sp.material.dispose(); f.sh.geometry.dispose(); }
+    }
     bt.foes = [];
   }
   // 전투가 끝나면 파티를 원래 지역 장면·자리로 돌려놓는다
   function endBattle3D(S3) {
     clearFoes3D();
-    for (const p of bt.fx) { stage.scene.remove(p.obj); if (p.light) stage.scene.remove(p.light); p.obj.geometry.dispose(); p.obj.material.dispose(); }
+    for (const p of bt.fx) { p.obj.parent && p.obj.parent.remove(p.obj); if (p.light && p.light.parent) p.light.parent.remove(p.light); p.obj.geometry.dispose(); p.obj.material.dispose(); }
     party.forEach((m, i) => {
       const s = bt.saved[i];
       S3.scene.add(m.root);
@@ -1580,9 +1737,21 @@
     else if (kind === 'hit') setTimeout(() => { if (bt && !m.down) setAnim(m, 'hit', true); }, 180);
   }
   // 효과: fire(살아 있는 적 모두에 불꽃) · breath(파티 모두에 불꽃) · heal(파티원 번호) · spark(맞은 적 번호)
+  // 숨결은 막 덤빈 적 모델이 Breath 동작을 하고, 입에서 파티 쪽으로 불길이 뻗은 뒤 파티가 불에 휩싸인다
   function battleFx(kind, arg) {
     if (!bt) return;
     const at = [];
+    if (kind === 'breath') {
+      bt.breath = true;
+      const f = bt.foes.find((x) => x.model && x.model.acts.breath && !x.dead);
+      if (f) {
+        const M = f.model, to = party.reduce((a, m) => a.add(m.pos), new THREE.Vector3()).multiplyScalar(1 / Math.max(1, party.length)).setY(0.5);
+        const mouth = () => (M.jaw ? M.jaw.getWorldPosition(new THREE.Vector3()) : f.g.position.clone().setY(f.h * 0.7));
+        for (let k = 0; k < 6; k++) burst('breath', to.clone(), [0xff6a20, 0xffb040], 0.62 + k * 0.07, () => mouth().lerp(to, k / 6));
+        for (const m of party) burst('breath', m.pos.clone().setY(0.5), [0xff6a20, 0xffb040], 1.0);
+        return;
+      }
+    }
     if (kind === 'fire') for (const f of bt.foes) { if (f.g.visible) at.push(f.g.position.clone().setY(f.h * 0.45)); }
     if (kind === 'breath') for (const m of party) at.push(m.pos.clone().setY(0.5));
     if (kind === 'heal' && party[arg]) at.push(party[arg].pos.clone().setY(0.1));
@@ -1591,7 +1760,7 @@
     const delay = kind === 'spark' ? 0.22 : kind === 'fire' || kind === 'heal' ? 0.35 : 0;
     for (const p of at) burst(kind, p, C, delay);
   }
-  function burst(kind, at, C, delay) {
+  function burst(kind, at, C, delay, where) {
     if (!dotTex) dotTex = canvasTex(64, (g, s) => { const r = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.4, 'rgba(255,255,255,0.6)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, s, s); });
     const N = kind === 'spark' ? 14 : kind === 'heal' ? 36 : 56, pos = new Float32Array(N * 3), col = new Float32Array(N * 3), vel = [];
     const c = new THREE.Color();
@@ -1610,19 +1779,45 @@
     stage.scene.add(obj);
     const light = kind === 'spark' ? null : new THREE.PointLight(C[0], 0, 4, 1.5);
     if (light) { light.position.copy(at).setY(at.y + 0.3); stage.scene.add(light); }
-    bt.fx.push({ obj, vel, light, t: -delay, life: kind === 'spark' ? 0.4 : 0.9, grav: kind === 'spark' ? -6 : kind === 'heal' ? 0 : 0.6 });
+    bt.fx.push({ obj, vel, light, at, where, t: -delay, life: kind === 'spark' ? 0.4 : 0.9, grav: kind === 'spark' ? -6 : kind === 'heal' ? 0 : 0.6 });
   }
 
-  // 전투 장면 한 번. v.battle = { ref, img, aspect, scale, tint, glow, fly, foes: [{hit, lunge, dying}], down: [파티원 쓰러짐], won }
+  // 적 모델 한 장면: 덤비면 Attack(숨결이면 Breath), 맞으면 Hit, 쓰러지면 Death 를 한 번 하고 흐려진다
+  function foeModelFrame(f, s, p, dt) {
+    const M = f.model;
+    if (s.lunge > 0) p.x += Math.sin((1 - s.lunge) * Math.PI) * 0.5;
+    if (s.dying > 0 && !f.dead) { f.dead = 0.001; setAnim(M, M.acts.death ? 'death' : 'idle', true); M.mats.forEach((m) => { m.transparent = true; m.needsUpdate = true; }); }
+    else if (!f.dead) {
+      if (s.lunge > f.pl + 0.05) { const kind = bt.breath && M.acts.breath ? 'breath' : 'attack'; bt.breath = false; setAnim(M, kind, true); }
+      else if (s.hit > f.ph + 0.05) setAnim(M, 'hit', true);
+      const a = M.acts[M.cur];
+      if (M.cur !== 'idle' && a && (!a.isRunning() || a.time >= a.getClip().duration - 0.02)) setAnim(M, 'idle');
+    }
+    f.pl = s.lunge; f.ph = s.hit;
+    M.mixer.update(dt);
+    let fade = 0;
+    if (f.dead) { f.dead += dt; const dd = M.acts.death ? M.acts.death.getClip().duration : 0.4; fade = Math.min(1, Math.max(0, (f.dead - dd - 0.25) / 0.5)); }
+    const red = s.hit > 0 && !f.dead && Math.floor(clockT * 30) % 2;
+    for (const m of M.mats) {
+      if (red) m.emissive.setRGB(0.42, 0.06, 0.04); else m.emissive.copy(m.userData.emissive);
+      if (f.dead) m.opacity = 1 - fade;
+    }
+    f.g.visible = fade < 1;
+  }
+
+  // 전투 장면 한 번. v.battle = { ref, img, aspect, scale, tint, glow, fly, sprite, stage, foes: [{hit, lunge, dying}], down: [파티원 쓰러짐], won }
   function battleFrame(v, w, h) {
     const b = v.battle, dt = v.dt;
-    if (!bt || bt.ref !== b.ref || bt.img !== b.img || bt.foes.length !== b.foes.length) setupBattle(b);
+    if (!bt || bt.ref !== b.ref || bt.img !== b.img || bt.foes.length !== b.foes.length || bt.theme !== (b.stage || 'field') ||
+      bt.model !== !!(MON3D[b.sprite] && monModel(b.sprite))) setupBattle(b);
     clockT += dt;
+    for (const fl of stage.flick || []) fl.l.intensity = fl.base * (0.85 + Math.sin(clockT * 9.1 + fl.ph) * 0.08 + Math.sin(clockT * 23.7 + fl.ph) * 0.05);
     // 적: 숨 쉬듯 들썩이고, 덤빌 때는 파티 쪽으로 달려들고, 맞으면 흔들리며 붉게 번쩍, 쓰러지면 가라앉으며 사라진다
     bt.foes.forEach((f, i) => {
       const s = b.foes[i] || { hit: 0, lunge: 0, dying: 1 };
       const t = clockT + f.phase;
       const p = f.g.position.copy(f.base);
+      if (f.model) { foeModelFrame(f, s, p, dt); return; }
       if (s.lunge > 0) p.x += Math.sin((1 - s.lunge) * Math.PI) * 1.5;
       if (s.hit > 0) p.x += Math.sin(clockT * 80) * 0.06 * s.hit - s.hit * 0.1;
       f.sp.position.y = (f.fly ? 0.45 + Math.sin(t * 2.2) * 0.08 : 0) - s.dying * f.h * 0.25;
@@ -1662,6 +1857,12 @@
       const p = bt.fx[i];
       p.t += dt;
       if (p.t < 0) continue;
+      if (p.where) { // 터질 때의 자리로 옮긴다 (움직이는 입)
+        const d = p.where().sub(p.at), arr = p.obj.geometry.attributes.position.array;
+        for (let j = 0; j < arr.length; j += 3) { arr[j] += d.x; arr[j + 1] += d.y; arr[j + 2] += d.z; }
+        if (p.light) p.light.position.add(d);
+        p.where = null;
+      }
       const k = p.t / p.life, arr = p.obj.geometry.attributes.position.array;
       p.vel.forEach((vv, j) => { vv[1] += p.grav * dt; arr[j * 3] += vv[0] * dt; arr[j * 3 + 1] += vv[1] * dt; arr[j * 3 + 2] += vv[2] * dt; });
       p.obj.geometry.attributes.position.needsUpdate = true;
@@ -1671,11 +1872,14 @@
     }
     // 카메라: 무대 앞쪽 조금 왼쪽 위에서 양쪽이 다 보이게. 천천히 좌우로 흔들린다
     const aspect = w / h, f2 = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
-    const dist = Math.max(5.4 / (f2 * aspect), 2.6 / f2) + 0.6;
+    // 큰 적(모델)은 무대 왼쪽으로 넓게 서므로 그만큼 화면 폭을 넓힌다
+    const left = Math.min(-2.25, ...bt.foes.map((f) => f.base.x - (f.model ? Math.min(f.w, 3.4) * 0.5 + 0.3 : 0)));
+    const span = 3.15 - left, high = Math.max(2.6, ...bt.foes.map((f) => f.h + 0.5));
+    const dist = Math.max(span / (f2 * aspect), high / f2) + 0.6;
     const pitch = THREE.MathUtils.degToRad(17), yaw = -0.12 + (v.reduceMotion ? 0 : Math.sin(clockT * 0.25) * 0.05);
     let shx = 0, shz = 0;
     if (v.shake) { shx = Math.sin(clockT * 70) * 0.08 * v.shake; shz = Math.cos(clockT * 63) * 0.06 * v.shake; }
-    const tx = 0.45, ty = 0.55, tz = 0.15;
+    const tx = (left + 3.15) / 2, ty = 0.55 + (high - 2.6) * 0.3, tz = 0.15;
     camera.position.set(tx + Math.sin(yaw) * Math.cos(pitch) * dist + shx, ty + Math.sin(pitch) * dist, tz + Math.cos(yaw) * Math.cos(pitch) * dist + shz);
     camera.lookAt(tx + shx, ty, tz + shz);
     CUT.r.value = 0;

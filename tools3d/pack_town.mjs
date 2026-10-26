@@ -4,8 +4,10 @@
 // 들판 묶음: Medieval Hexagon 과 Halloween Bits 의 gltf 폴더를 한 폴더(<src>) 아래에 모아 두고
 //   node pack_town.mjs <src> field.glb mountain_A mountain_B mountain_C rock_single_B rock_single_D crypt gravestone grave_A grave_B gravemarker_A gravemarker_B tree_dead_large tree_dead_medium tree_dead_small fence fence_broken post_lantern
 //   → { "field": base64 } 로 models3d/field.json
+// 던전 전투 무대 묶음 (Dungeon Remastered): QUANT=1 node pack_town.mjs <Dungeon-Remastered>/addons dungeon.glb wall wall_arched wall_broken pillar pillar_decorated floor_tile_large floor_dirt_large floor_dirt_large_rocky rubble_large torch_mounted banner_patternA_red candle_triple barrel_small box_stacked
+//   → { "dungeon": base64 } 로 models3d/dungeon.json
 import { NodeIO } from '@gltf-transform/core';
-import { dedup, prune, mergeDocuments, unpartition } from '@gltf-transform/functions';
+import { dedup, prune, mergeDocuments, unpartition, quantize } from '@gltf-transform/functions';
 import fs from 'fs'; import path from 'path';
 const [,, base, out, ...names] = process.argv;
 const io = new NodeIO();
@@ -16,6 +18,6 @@ for (const n of names) {
   const map = mergeDocuments(doc, src);
   for (const s of src.getRoot().listScenes()) map.get(s).setName(n);
 }
-await doc.transform(unpartition(), dedup(), prune({ keepLeaves: false }));
+await doc.transform(unpartition(), dedup(), prune({ keepLeaves: false }), ...(process.env.QUANT ? [quantize()] : []));   // QUANT=1: 꼭짓점을 작은 정수로 (파일 절반쯤)
 await io.write(out, doc);
 console.log(doc.getRoot().listScenes().map(s=>s.getName()).join(' '), fs.statSync(out).size);
