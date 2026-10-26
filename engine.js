@@ -2283,7 +2283,7 @@
     w3dCv.hidden = false;
     worldCv.hidden = !S.battle;
     World3D.frame({
-      area: S.area, hero: { x: hero.x, y: hero.y, dir: S.wdir }, dt, shake, reduceMotion, ok: open3D, done: (x, y) => !!S.done[wkey(x, y)],
+      area: S.area, hero: { x: hero.x, y: hero.y, dir: S.wdir }, dt, shake, reduceMotion, ok: open3D, done: (x, y) => !!S.done[wkey(x, y)], flag: (n) => !!S.flags[n],
       movers: ensureMovers().map((m) => ({ x: m.fx, y: m.fy, dir: m.dir, npc: m.ev.npc, key: m.hx + ',' + m.hy }))
     });
     if (S.battle) { wctx.clearRect(0, 0, worldCv.width, worldCv.height); drawWorldBattle(worldCv.width, worldCv.height); }
@@ -2293,7 +2293,7 @@
     try { localStorage.setItem(W3D_KEY, on ? '1' : '0'); } catch (e) { /* 저장소 없음 */ }
     update3DButton();
     if (on && window.World3D && !World3D.ready) load3D(false);
-    else log(on ? (World3D.wants(S.area) ? '3D로 본다.' : '3D로 보기를 켰다. 지금은 마을 로엘과 집 안만 3D로 보인다.') : '2D로 본다.', 'hint');
+    else log(on ? (World3D.wants(S.area) ? '3D로 본다.' : '3D로 보기를 켰다. 이곳은 아직 2D로 보인다.') : '2D로 본다.', 'hint');
     draw();
   }
   function load3D(quiet) {
@@ -2303,7 +2303,7 @@
     World3D.load((p) => { bar.style.width = Math.round(p * 100) + '%'; })
       .then(() => {
         box.hidden = true;
-        if (!quiet && use3D) log(World3D.wants(S.area) ? '3D로 본다.' : '3D로 보기를 켰다. 지금은 마을 로엘과 집 안만 3D로 보인다.', 'hint');
+        if (!quiet && use3D) log(World3D.wants(S.area) ? '3D로 본다.' : '3D로 보기를 켰다. 이곳은 아직 2D로 보인다.', 'hint');
         draw();
       })
       .catch(() => { box.hidden = true; use3D = false; update3DButton(); log('3D 화면을 불러오지 못해 2D로 본다.', 'warn'); });

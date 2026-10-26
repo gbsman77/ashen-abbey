@@ -1,5 +1,5 @@
 // 3D 지상 (설정의 "3D로 보기"). 걷기·사건·저장 규칙은 engine.js 의 격자 그대로 두고, 같은 지도를 3D로 세워 그리기만 한다.
-// 지금은 마을 로엘 바깥과 집 안 여섯 곳만 3D (AREAS). 들판은 2D 그대로.
+// 지상 전부(들판·마을 로엘·집 안 여섯 곳)를 3D로 그린다 (AREAS). 던전은 원래의 1인칭 화면 그대로.
 // three.js 는 모듈판(index.html importmap 의 'three')을 켤 때 따로 불러 쓴다. 던전의 three.min.js 와 물체를 섞지 않는다.
 (function () {
   'use strict';
@@ -19,9 +19,10 @@
     innkeeper: { h: 1.04 }, merchant: { h: 1.02 }, priest: { h: 1.02 }, smith: { h: 1.1 }, traveler: { h: 1.0 }, woman: { h: 0.98 }
   };
   // 3D로 그리는 지역. 집 안(indoor)은 buildRoom 이 벽·가구를 세운다
-  const AREAS = { town: true, elder_house: true, inn: true, church: true, granny_house: true, smithy: true, home: true };
+  const AREAS = { field: true, town: true, elder_house: true, inn: true, church: true, granny_house: true, smithy: true, home: true };
   // 소품 묶음 (장면 이름 = 소품 이름, tools3d/pack_town.mjs): town = KayKit Medieval Hexagon, interior = KayKit Dungeon Remastered
-  const PROPS = ['town', 'interior'];
+  // field = Medieval Hexagon 산·바위 + KayKit Halloween Bits 묘지 (납골당·비석·마른 나무·등불)
+  const PROPS = ['town', 'interior', 'field'];
   const HERO_H = 1.1;             // 사람 키 (칸 단위, 한 칸 = 1)
   const MODEL_H = 2.3;            // 파티 모델 원래 키 (KayKit 뼈대와 같은 크기). 무기까지 재면 사람마다 달라져서 고정값으로 줄인다
   const GAP = 0.85;               // 줄 선 사람 사이 거리
@@ -38,7 +39,8 @@
     state: 'idle', // idle | loading | ready | failed
     wants: (id) => !!AREAS[id],
     get ready() { return W3.state === 'ready'; },
-    load, frame, reset: () => { trail.length = 0; }
+    load, frame, reset: () => { trail.length = 0; },
+    info: () => renderer && { ...renderer.info.render, tex: renderer.info.memory.textures, geo: renderer.info.memory.geometries }
   };
 
   // ---------- 불러오기 ----------
@@ -66,7 +68,10 @@
         Promise.all(PARTY3D.map((p) => fetchPack(p.key).catch(() => null)))
       ]);
       props = {};
-      for (const pk of packs) if (pk) for (const s of pk.scenes) { s.updateMatrixWorld(true); props[s.name] = s; }
+      for (const pk of packs) if (pk) for (const s of pk.scenes) {
+        s.updateMatrixWorld(true); props[s.name] = s;
+        s.traverse((m) => { if (m.isMesh) seeThrough(m.material); });
+      }
       initRenderer();
       party = chars.map((g, i) => makeMember(g, PARTY3D[i]));
       W3.state = 'ready';
@@ -82,6 +87,7 @@
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     camera = new THREE.PerspectiveCamera(34, 4 / 3, 0.3, 120);
+    CUT.hero.value = new THREE.Vector3();
     hemi = new THREE.HemisphereLight(0xfff8ee, 0x6d7d5a, 1.55);
     sun = new THREE.DirectionalLight(0xfff0d8, 1.7);
     sun.castShadow = true;
@@ -90,6 +96,30 @@
     Object.assign(sun.shadow.camera, { left: -15, right: 15, top: 15, bottom: -15, near: 1, far: 70 });
     sun.shadow.bias = -0.0006;
     sun.shadow.normalBias = 0.03;
+  }
+
+  // 주인공을 가리는 나무·산·소품: 카메라와 주인공 사이에 든 부분만 점점이 비워 둔다 (한 재질을 여러 곳에 같이 쓰므로 통째로 흐리게 할 수 없다)
+  const CUT = { hero: { value: null }, r: { value: 0 } };
+  function seeThrough(mat) {
+    if (mat.userData.cut) return;
+    mat.userData.cut = true;
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uCutHero = CUT.hero; sh.uniforms.uCutR = CUT.r;
+      sh.vertexShader = 'varying vec3 vCutW;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+        { vec4 cw = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          cw = instanceMatrix * cw;
+        #endif
+          vCutW = (modelMatrix * cw).xyz; }`);
+      sh.fragmentShader = 'varying vec3 vCutW;\nuniform vec3 uCutHero;\nuniform float uCutR;\n' + sh.fragmentShader.replace('void main() {', `void main() {
+        if (uCutR > 0.0) {
+          vec3 hc = uCutHero - cameraPosition; float L = length(hc); vec3 dr = hc / L;
+          vec3 pc = vCutW - cameraPosition; float t = dot(pc, dr);
+          float n = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
+          if (t < L - 0.5 && length(pc - dr * t) < uCutR * (0.55 + 0.45 * n)) discard;
+        }`);
+    };
+    mat.customProgramCacheKey = () => 'cut';
   }
 
   // ---------- 파티 ----------
@@ -153,8 +183,9 @@
     return { root: wrap, mixer, acts, cur: 'idle', yaw: null, still: 1, model: true, px: null, pz: null };
   }
 
-  // ---------- 땅 그림 (지도 한 칸 = PPT 픽셀, 둘레 MARGIN 칸까지) ----------
-  const PPT = 32, MARGIN = 10;
+  // ---------- 땅 그림 (지도 한 칸 = PPT 픽셀, 둘레 MARGIN 칸까지. 넓은 들판은 칸당 픽셀을 줄인다) ----------
+  const MARGIN = 10;
+  const pptFor = (A) => ((A.map.length + MARGIN * 2) * (A.map[0].length + MARGIN * 2) > 2500 ? 24 : 32);
   const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
   function vnoise(x, y) {
     const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
@@ -164,7 +195,7 @@
   }
   const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 
-  // 칸 → 땅 종류: 0 풀 1 흙길 2 돌길 3 밭 4 물
+  // 칸 → 땅 종류: 0 풀 1 흙길 2 돌길 3 밭 4 물 5 숲 바닥 6 바위산 7 깊은 숲
   function groundKind(A, ch) {
     const ev = A.events[ch];
     if (ev) {
@@ -174,11 +205,22 @@
     if (ch === ':') return 1;
     if (ch === 'p' || ch === 'o' || ch === 'k' || ch === 'W' || ch === 'G' || ch === 'R' || ch === 'C') return 2;
     if (ch === 'y') return 3;
-    if (ch === 'w') return 4;
+    if (ch === 'w' || ch === '~' || ch === '=' || ch === '|') return 4;
+    if (ch === 'T') return 5;
+    if (ch === '^') return 6;
+    if (ch === 'F') return 7;
     return 0;
   }
-  function paintGround(A) {
-    const rows = A.map.length, cols = A.map[0].length;
+  // 걸어 다닐 수 있는 칸 (산·숲 높이를 낮출지 정할 때 쓴다)
+  function walkable(A, x, y) {
+    const ch = A.map[y] && A.map[y][x];
+    if (!ch) return false;
+    const ev = A.events[ch];
+    if (ev) return !ev.solid || !!ev.npc;
+    return '.,:=|Tpy_r'.includes(ch);
+  }
+  function paintGround(A, extraPath = []) {
+    const rows = A.map.length, cols = A.map[0].length, PPT = pptFor(A);
     const GW = cols + MARGIN * 2, GH = rows + MARGIN * 2;
     // 칸마다 종류 (지도 밖은 풀, 출구 줄은 길이 이어진다)
     const kind = new Uint8Array(GW * GH);
@@ -186,11 +228,22 @@
     A.map.forEach((row, y) => [...row].forEach((ch, x) => {
       kind[(y + MARGIN) * GW + x + MARGIN] = groundKind(A, ch);
       const ev = A.events[ch];
-      if (ev && ev.go && !ev.door) exits.push([x, y]);
+      if (ev && ev.go && !ev.door && (x === 0 || y === 0 || x === cols - 1 || y === rows - 1)) exits.push([x, y]);
     }));
     for (const [x, y] of exits) { // 출구 바깥으로 길을 지도 끝까지
       const dx = x === 0 ? -1 : x === cols - 1 ? 1 : 0, dy = y === 0 ? -1 : y === rows - 1 ? 1 : 0;
       for (let i = 1; i <= MARGIN; i++) kind[(y + MARGIN + dy * i) * GW + x + MARGIN + dx * i] = 1;
+    }
+    for (const [x, y] of extraPath) if (x >= -MARGIN && y >= -MARGIN && x < cols + MARGIN && y < rows + MARGIN) kind[(y + MARGIN) * GW + x + MARGIN] = 1;
+    // 칸마다 둘레 3×3 에 있는 땅 종류 (비트). 풀만 있으면 0
+    const nb = new Uint16Array(GW * GH);
+    for (let ty = 0; ty < GH; ty++) for (let tx = 0; tx < GW; tx++) {
+      let m = 0;
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+        const t = tx + i, u = ty + j;
+        if (t >= 0 && u >= 0 && t < GW && u < GH && kind[u * GW + t]) m |= 1 << kind[u * GW + t];
+      }
+      nb[ty * GW + tx] = m;
     }
     const K = (tx, ty, k) => (tx < 0 || ty < 0 || tx >= GW || ty >= GH ? 0 : kind[ty * GW + tx] === k ? 1 : 0);
     const cv = document.createElement('canvas');
@@ -202,7 +255,10 @@
       d1: [196, 160, 104], d2: [168, 132, 84],
       s1: [168, 162, 150], s2: [132, 126, 116], mortar: [96, 92, 86],
       soil: [112, 78, 48], soilD: [84, 56, 34],
-      w1: [64, 128, 200], w2: [40, 92, 168]
+      w1: [64, 128, 200], w2: [40, 92, 168],
+      f1: [70, 116, 48], f2: [52, 92, 38], litter: [112, 92, 56],
+      r1: [142, 138, 124], r2: [108, 104, 94], moss: [96, 128, 70],
+      k1: [44, 76, 36], k2: [32, 58, 28]
     };
     const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
     // 칸 경계에서 부드럽게 섞이도록 이웃 네 칸 가운데를 이어 본 값 (0~1)
@@ -221,43 +277,73 @@
         let col = mix(mix(C.g2, C.g1, n1), C.g3, Math.max(0, n2 - 0.55) * 1.6);
         col = mix(col, C.g2, n3 * 0.18);
         // 근처에 다른 땅이 없으면 여기서 끝 (대부분의 칸)
-        let near = false;
-        for (let j = -1; j <= 1 && !near; j++) for (let i = -1; i <= 1; i++) { const t = tx + i, s = ty + j; if (t >= 0 && s >= 0 && t < GW && s < GH && kind[s * GW + t]) { near = true; break; } }
-        if (near) {
+        const m = nb[ty * GW + tx];
+        if (m) {
           const edge = (vnoise(u * 3.1, v * 3.1) - 0.5) * 0.28;
+          // 숲 바닥: 짙은 풀에 낙엽
+          if (m & 32) {
+            const a = smooth(0.3, 0.7, weight(u, v, 5) + edge);
+            if (a > 0) {
+              let fc = mix(C.f2, C.f1, vnoise(u * 1.3, v * 1.3) * 0.7 + n3 * 0.3);
+              fc = mix(fc, C.litter, Math.max(0, vnoise(u * 2.6 + 9, v * 2.6) - 0.58) * 1.8);
+              col = mix(col, fc, a);
+            }
+          }
+          // 깊은 숲: 그늘진 풀
+          if (m & 128) {
+            const a = smooth(0.3, 0.7, weight(u, v, 7) + edge);
+            if (a > 0) col = mix(col, mix(C.k2, C.k1, vnoise(u, v) * 0.8 + n3 * 0.2), a);
+          }
+          // 바위산 기슭: 회색 바위에 이끼
+          if (m & 64) {
+            const a = smooth(0.35, 0.6, weight(u, v, 6) + edge);
+            if (a > 0) {
+              let rc = mix(C.r2, C.r1, vnoise(u * 2.4, v * 2.4) * 0.8 + n3 * 0.2);
+              rc = mix(rc, C.moss, smooth(0.5, 0.75, vnoise(u * 1.1 + 30, v * 1.1)) * 0.8);
+              col = mix(col, rc, a);
+            }
+          }
           // 흙길
-          const wd = weight(u, v, 1);
-          if (wd > 0) {
-            const a = smooth(0.38, 0.62, wd + edge);
-            let dc = mix(C.d1, C.d2, vnoise(u * 4, v * 4) * 0.8 + n3 * 0.2);
-            if (hash(pxi >> 2, py >> 2) > 0.93) dc = mix(dc, [150, 120, 80], 0.6); // 작은 돌
-            col = mix(col, dc, a);
+          if (m & 2) {
+            const wd = weight(u, v, 1);
+            if (wd > 0) {
+              const a = smooth(0.38, 0.62, wd + edge);
+              let dc = mix(C.d1, C.d2, vnoise(u * 4, v * 4) * 0.8 + n3 * 0.2);
+              if (hash(pxi >> 2, py >> 2) > 0.93) dc = mix(dc, [150, 120, 80], 0.6); // 작은 돌
+              col = mix(col, dc, a);
+            }
           }
           // 돌길: 엇갈린 네모 돌
-          const wc = weight(u, v, 2);
-          if (wc > 0) {
-            const a = smooth(0.45, 0.55, wc + edge * 0.4);
-            const su = u * 3, sv = v * 4, row = Math.floor(sv), off = (row % 2) * 0.5;
-            const cu = su + off, ci = Math.floor(cu);
-            const gx = Math.min(cu - ci, 1 - (cu - ci)), gy = Math.min(sv - row, 1 - (sv - row));
-            const stone = mix(C.s2, C.s1, hash(ci, row) * 0.8 + n3 * 0.2);
-            const sc = Math.min(gx * 3, gy * 4) < 0.16 ? C.mortar : stone;
-            col = mix(col, sc, a);
+          if (m & 4) {
+            const wc = weight(u, v, 2);
+            if (wc > 0) {
+              const a = smooth(0.45, 0.55, wc + edge * 0.4);
+              const su = u * 3, sv = v * 4, row = Math.floor(sv), off = (row % 2) * 0.5;
+              const cu = su + off, ci = Math.floor(cu);
+              const gx = Math.min(cu - ci, 1 - (cu - ci)), gy = Math.min(sv - row, 1 - (sv - row));
+              const stone = mix(C.s2, C.s1, hash(ci, row) * 0.8 + n3 * 0.2);
+              const sc = Math.min(gx * 3, gy * 4) < 0.16 ? C.mortar : stone;
+              col = mix(col, sc, a);
+            }
           }
           // 밭: 가로 이랑
-          const ws = weight(u, v, 3);
-          if (ws > 0) {
-            const a = smooth(0.45, 0.55, ws + edge * 0.3);
-            const furrow = Math.abs(((v * 3) % 1) - 0.5) * 2;
-            col = mix(col, mix(C.soil, C.soilD, smooth(0.6, 1, furrow) * 0.8 + n3 * 0.2), a);
+          if (m & 8) {
+            const ws = weight(u, v, 3);
+            if (ws > 0) {
+              const a = smooth(0.45, 0.55, ws + edge * 0.3);
+              const furrow = Math.abs(((v * 3) % 1) - 0.5) * 2;
+              col = mix(col, mix(C.soil, C.soilD, smooth(0.6, 1, furrow) * 0.8 + n3 * 0.2), a);
+            }
           }
           // 물 (가장자리는 흙빛, 안쪽일수록 짙게)
-          const ww = weight(u, v, 4);
-          if (ww > 0) {
-            const a = smooth(0.3, 0.5, ww + edge * 0.5);
-            col = mix(col, C.d2, a);
-            const b = smooth(0.45, 0.6, ww + edge * 0.5);
-            col = mix(col, mix(C.w1, C.w2, smooth(0.6, 1, ww)), b);
+          if (m & 16) {
+            const ww = weight(u, v, 4);
+            if (ww > 0) {
+              const a = smooth(0.3, 0.5, ww + edge * 0.5);
+              col = mix(col, C.d2, a);
+              const b = smooth(0.45, 0.6, ww + edge * 0.5);
+              col = mix(col, mix(C.w1, C.w2, smooth(0.6, 1, ww)), b);
+            }
           }
         }
         const o = (py * cv.width + pxi) * 4;
@@ -272,7 +358,7 @@
         const r = hash(x * 31 + i, y * 17);
         ctx.fillStyle = ['#f4efe2', '#f2d24a', '#e8789a', '#d2443a', '#b48ae0'][Math.floor(hash(i, x + y * 99) * 5)];
         ctx.beginPath();
-        ctx.arc((x + MARGIN + 0.1 + 0.8 * r) * PPT, (y + MARGIN + 0.1 + 0.8 * hash(y + i * 7, x)) * PPT, 2.2, 0, Math.PI * 2);
+        ctx.arc((x + MARGIN + 0.1 + 0.8 * r) * PPT, (y + MARGIN + 0.1 + 0.8 * hash(y + i * 7, x)) * PPT, PPT * 0.07, 0, Math.PI * 2);
         ctx.fill();
       }
     }));
@@ -345,6 +431,7 @@
       water: new THREE.MeshStandardMaterial({ color: 0x4f8fd8, roughness: 0.12, metalness: 0.1, transparent: true, opacity: 0.82 }),
       lamp: new THREE.MeshBasicMaterial({ color: 0xffd890 }),
       canvasR: L({ color: 0xc23a2c }), canvasW: L({ color: 0xf2ead8 }),
+      moss: L({ color: 0xffffff, map: canvasTex(256, tiles('#7a9458', '#4e6438')) }),
       shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false })
     });
     return MAT;
@@ -533,33 +620,52 @@
   }
 
   // ---------- 소품 ----------
-  // KayKit 소품을 여러 자리에 한꺼번에 (InstancedMesh). list: [{x, z, s, r, y}]
+  // KayKit 소품을 여러 자리에 한꺼번에 (InstancedMesh). list: [{x, z, s, r, y, sy}] (sy = 세로 배율, 없으면 s)
   function scatter(scene, name, list) {
     if (!list.length || !props[name]) return;
     const src = props[name], m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
-    src.traverse((m) => {
+    for (const part of chunks(list)) src.traverse((m) => {
       if (!m.isMesh) return;
-      const im = new THREE.InstancedMesh(m.geometry, m.material, list.length);
-      list.forEach((p, i) => {
-        m4.compose(new THREE.Vector3(p.x, p.y || 0, p.z), q.setFromAxisAngle(up, p.r || 0), new THREE.Vector3(p.s, p.s, p.s)).multiply(m.matrixWorld);
+      const im = new THREE.InstancedMesh(m.geometry, m.material, part.length);
+      part.forEach((p, i) => {
+        m4.compose(new THREE.Vector3(p.x, p.y || 0, p.z), q.setFromAxisAngle(up, p.r || 0), new THREE.Vector3(p.s, p.sy ?? p.s, p.s)).multiply(m.matrixWorld);
         im.setMatrixAt(i, m4);
       });
-      im.castShadow = im.receiveShadow = true; im.frustumCulled = false;
+      cullable(im);
+      im.castShadow = im.receiveShadow = true;
       scene.add(im);
     });
   }
   // 코드로 만든 모양을 여러 자리에 (InstancedMesh). list: [{x, y, z, sx, sy, sz, r, color}]
   function instances(scene, geo, mat, list, shadow = true) {
     if (!list.length) return null;
-    const im = new THREE.InstancedMesh(geo, mat, list.length), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color();
-    list.forEach((p, i) => {
-      m4.compose(new THREE.Vector3(p.x, p.y || 0, p.z), q.setFromAxisAngle(up, p.r || 0), new THREE.Vector3(p.sx ?? 1, p.sy ?? 1, p.sz ?? 1));
-      im.setMatrixAt(i, m4);
-      if (p.color != null) im.setColorAt(i, c.set(p.color));
-    });
-    im.castShadow = shadow; im.receiveShadow = true; im.frustumCulled = false;
-    scene.add(im);
-    return im;
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color();
+    for (const part of chunks(list)) {
+      const im = new THREE.InstancedMesh(geo, mat, part.length);
+      part.forEach((p, i) => {
+        m4.compose(new THREE.Vector3(p.x, p.y || 0, p.z), q.setFromAxisAngle(up, p.r || 0), new THREE.Vector3(p.sx ?? 1, p.sy ?? 1, p.sz ?? 1));
+        im.setMatrixAt(i, m4);
+        if (p.color != null) im.setColorAt(i, c.set(p.color));
+      });
+      cullable(im);
+      im.castShadow = shadow; im.receiveShadow = true;
+      scene.add(im);
+    }
+  }
+  // 넓은 들판은 소품이 많아서 8칸 조각으로 나눠 화면(과 그림자) 밖 조각은 그리지 않는다
+  const CHUNK = 8;
+  function chunks(list) {
+    const by = new Map();
+    for (const p of list) {
+      const k = Math.floor(p.x / CHUNK) + ',' + Math.floor(p.z / CHUNK);
+      if (!by.has(k)) by.set(k, []);
+      by.get(k).push(p);
+    }
+    return [...by.values()];
+  }
+  function cullable(im) {
+    if (im.computeBoundingSphere) { im.computeBoundingSphere(); im.boundingSphere.radius += 0.5; im.frustumCulled = true; }
+    else im.frustumCulled = false;
   }
 
   function buildArea(id) {
@@ -574,12 +680,26 @@
     scene.add(hemi.clone());
     const light = sun.clone(); light.shadow = sun.shadow.clone(); light.castShadow = true;
     scene.add(light, light.target);
-    const S3 = { scene, sun: light, buildings: [], doors: [], npcs: new Map(), cols, rows, A, spray: null, water: null };
+    // edge: 지도 밖을 카메라가 몇 칸까지 비출지 (들판은 마을 문 너머 집이 보이게 넓게)
+    const S3 = { scene, sun: light, buildings: [], doors: [], npcs: new Map(), cols, rows, A, spray: null, water: null, fires: [], chests: [], glows: [], wisps: [], edge: id === 'town' ? 1.2 : 2.8 };
     const at = (x, y) => (map[y] && map[y][x]) || null;
     const R = (x, y, k = 0) => hash(x * 13 + k * 101, y * 7 + k * 37);
+    // 들판 표지(마을 문·수도원·묘지) 둘레는 숲·산을 비우고 따로 세운다. clear: [x0, y0, x1, y1] 칸 범위 (지도 밖도 된다)
+    const clear = [], extraPath = [];
+    map.forEach((row, y) => [...row].forEach((ch, x) => {
+      const ev = A.events[ch], icon = ev && ev.icon;
+      if (icon === 'town') {
+        clear.push([-MARGIN - 7, y - 3, 0.99, y + 3]);
+        for (let i = x - 1; i >= -MARGIN; i--) extraPath.push([i, y]);
+      } else if (icon === 'abbey') clear.push([x - 2, y - 2, x + 2.99, y + 0.99]);
+      else if (icon === 'crypt') clear.push([x - 4, y - 2, x + 4.99, y + 1.99]);
+    }));
+    const inClear = (x, y) => clear.some(([x0, y0, x1, y1]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
+    // 북쪽 k 줄 안에 걸을 수 있는 칸이 있나 (그 남쪽의 산·숲은 카메라와 주인공 사이에 서므로 낮춘다)
+    const walkNorth = (x, y, k) => { for (let j = 1; j <= k; j++) for (let i = -1; i <= 1; i++) if (walkable(A, x + i, y - j)) return true; return false; };
 
     // 땅
-    const { cv, GW, GH } = paintGround(A);
+    const { cv, GW, GH } = paintGround(A, extraPath);
     const tex = new THREE.CanvasTexture(cv);
     tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(GW, GH), new THREE.MeshLambertMaterial({ map: tex }));
@@ -592,7 +712,12 @@
     for (const b of findBuildings(A)) S3.buildings.push(makeBuilding(b, scene, S3.doors));
 
     // 지도 칸마다
-    const L = { trees: { tree_single_A: [], tree_single_B: [], trees_B_small: [] }, barrel: [], well: [], hedge: [], post: [], rail: [], crop: [], cropLeaf: [], grass: [], lily: [], reed: [], pot: [], bush: [], lampPost: [], lampHead: [], waterTiles: [] };
+    const L = { trees: { tree_single_A: [], tree_single_B: [], trees_B_small: [] }, barrel: [], well: [], hedge: [], post: [], rail: [], crop: [], cropLeaf: [], grass: [], fern: [], lily: [], reed: [], pot: [], bush: [], lampPost: [], lampHead: [], waterTiles: [], rocks: { rock_single_B: [], rock_single_D: [] } };
+    const forest = { trees_A_large: [], trees_A_medium: [], trees_B_large: [], trees_B_medium: [] }, hills = { hills_A_trees: [], mountain_A_grass_trees: [], mountain_B_grass_trees: [] };
+    const MOUNTS = ['mountain_A', 'mountain_B', 'mountain_C'];
+    const mounts = Object.fromEntries(MOUNTS.map((n) => [n, []]));
+    const isWater = (ch) => ch === 'w' || ch === '~' || ch === '=' || ch === '|';
+    const bridge = Batch();
     const outer = (x, y) => x === 0 || y === 0 || x === cols - 1 || y === rows - 1;
     map.forEach((row, y) => [...row].forEach((ch, x) => {
       const cx = x + 0.5, cz = y + 0.5;
@@ -618,10 +743,47 @@
       } else if (ch === 'l') {
         L.lampPost.push({ x: cx, y: 0.75, z: cz, sx: 1, sy: 1, sz: 1 });
         L.lampHead.push({ x: cx, y: 1.5, z: cz, sx: 1, sy: 1, sz: 1 });
-      } else if (ch === 'w') {
+      } else if (ch === 'w' || ch === '~') {
         L.waterTiles.push([x, y]);
-        if (R(x, y) < 0.55) L.lily.push({ x: cx + (R(x, y, 1) - 0.5) * 0.6, z: cz + (R(x, y, 2) - 0.5) * 0.6, s: 3, r: R(x, y, 3) * 6, y: 0.02 });
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (at(x + dx, y + dy) !== 'w' && R(x + dx, y + dy, 9) < 0.5) L.reed.push({ x: cx + dx * 0.45, z: cz + dy * 0.45, s: 3, r: R(x, y, 5) * 6 });
+        // 연꽃은 고인 물에만 (강은 둘레가 거의 물인 넓은 호수 칸만)
+        const still = ch === 'w' || [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0]].every(([dx, dy]) => at(x + dx, y + dy) === '~');
+        if (R(x, y) < (ch === 'w' ? 0.55 : still ? 0.3 : 0)) L.lily.push({ x: cx + (R(x, y, 1) - 0.5) * 0.6, z: cz + (R(x, y, 2) - 0.5) * 0.6, s: 3, r: R(x, y, 3) * 6, y: 0.02 });
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!isWater(at(x + dx, y + dy)) && R(x + dx, y + dy, 9) < 0.5) L.reed.push({ x: cx + dx * 0.45, z: cz + dy * 0.45, s: 3, r: R(x, y, 5) * 6 });
+      } else if (ch === '=' || ch === '|') {
+        // 나무 다리: 건너는 방향(= 동서, | 남북)으로 널빤지, 양옆에 난간
+        L.waterTiles.push([x, y]);
+        const along = ch === '|', M2 = materials();
+        const box = (w, h, d, mat, ox, oy, oz) => (along ? bridge.box(d, h, w, mat, cx + oz, oy, cz + ox) : bridge.box(w, h, d, mat, cx + ox, oy, cz + oz));
+        box(1.02, 0.08, 0.84, M2.door, 0, 0.16, 0);
+        for (const s of [-1, 1]) {
+          box(1.02, 0.1, 0.1, M2.timber, 0, 0.1, s * 0.4);
+          box(1.02, 0.06, 0.06, M2.timber, 0, 0.62, s * 0.42);
+          for (const e of [-0.45, 0.05]) box(0.08, 0.5, 0.08, M2.timber, e, 0.4, s * 0.42);
+        }
+        if (!isWater(at(x + (along ? 0 : 1), y + (along ? 1 : 0)))) for (const s of [-1, 1]) box(0.1, 0.62, 0.1, M2.timber, 0.47, 0.34, s * 0.42); // 끝 기둥
+      } else if (ch === '^') {
+        // 바위산: 칸마다 KayKit 산 하나. 길가(북쪽에 걸을 칸)는 낮은 바위로, 안쪽일수록 높게
+        // 산 안쪽은 칸을 몇 개 건너 크게 세워 덩어리가 덜 잘게 보이게
+        const edge = walkNorth(x, y, 2) || walkable(A, x, y + 1) || walkable(A, x - 1, y) || walkable(A, x + 1, y);
+        if (!inClear(x, y) && (edge || R(x, y, 12) < 0.62)) {
+          const low = walkNorth(x, y, 1) ? 0.4 : walkNorth(x, y, 2) ? 0.68 : 1;
+          mounts[MOUNTS[Math.floor(R(x, y, 1) * MOUNTS.length)]].push({ x: cx + (R(x, y, 2) - 0.5) * 0.3, z: cz + (R(x, y, 3) - 0.5) * 0.3, s: (edge ? 0.62 : 0.8) + R(x, y, 4) * 0.18, sy: (0.8 + R(x, y, 5) * 0.55) * low, r: Math.floor(R(x, y, 6) * 6) * Math.PI / 3 });
+          if (walkable(A, x, y + 1) && R(x, y, 7) < 0.5) L.rocks[R(x, y, 8) < 0.5 ? 'rock_single_B' : 'rock_single_D'].push({ x: cx + (R(x, y, 9) - 0.5) * 0.6, z: cz + 0.45, s: 1.6 + R(x, y, 10), r: R(x, y, 11) * 6 });
+        }
+      } else if (ch === 'F') {
+        // 깊은 숲: 칸마다 나무 덤불. 걸을 칸 바로 남쪽은 작은 덤불로
+        if (!inClear(x, y)) {
+          if (walkNorth(x, y, 1)) { if (R(x, y, 1) < 0.7) L.trees.trees_B_small.push({ x: cx + (R(x, y, 2) - 0.5) * 0.3, z: cz + 0.1, s: 0.95 + R(x, y, 3) * 0.3, r: R(x, y, 4) * 6 }); }
+          else forest[Object.keys(forest)[Math.floor(R(x, y, 5) * 4)]].push({ x: cx + (R(x, y, 6) - 0.5) * 0.4, z: cz + (R(x, y, 7) - 0.5) * 0.4, s: (walkNorth(x, y, 2) ? 0.9 : 1.1) + R(x, y, 8) * 0.35, r: R(x, y, 9) * 6 });
+        }
+      } else if (ch === 'T') {
+        // 걸을 수 있는 숲: 칸 가장자리에 덤불, 가운데는 비워 둔다 (나무는 아래에서 칸 모서리에)
+        for (let i = 0; i < 2; i++) {
+          const side = Math.floor(R(x, y, i + 1) * 4), t = R(x, y, i + 3) - 0.5;
+          const [ox, oz] = [[t, -0.42], [t, 0.42], [-0.42, t], [0.42, t]][side];
+          L.bush.push({ x: cx + ox, y: 0.14, z: cz + oz, sx: 0.24 + R(x, y, i + 5) * 0.1, sy: 0.2 + R(x, y, i + 6) * 0.08, sz: 0.24, r: R(x, y, i) * 6, color: R(x, y, i + 7) < 0.5 ? 0x3a6e2e : 0x4a7e34 });
+        }
+        for (let i = 0; i < 4; i++) L.fern.push({ x: x + 0.08 + R(x, y, i + 10) * 0.84, y: 0.13, z: y + 0.08 + R(x, y, i + 20) * 0.84, sx: 1, sy: 0.8 + R(x, y, i) * 0.6, sz: 1, r: R(x, y, i + 30) * 6, color: R(x, y, i + 40) < 0.5 ? 0x3d7a2c : 0x5a8e3a });
       } else if (ch === 'k') {
         makeStall(scene, cx, cz, at(x, y + 1) === 'p' || at(x, y + 1) === 'k' ? 0 : Math.PI);
       } else if (ch === 'o') {
@@ -632,7 +794,22 @@
           L.crop.push({ x: px, y: 0.1, z: pz, sx: 1, sy: 0.8 + R(x * 3 + i, y * 3 + j) * 0.5, sz: 1, r: R(i, j) * 6 });
         }
       } else if (ev && ev.icon === 'sign') {
-        makeSignpost(scene, cx, cz, A.name);
+        makeSignpost(scene, cx, cz, id === 'town' ? (A.name.split(' ').pop() || '').slice(0, 2) : ev.name.split(' ')[0]);
+      } else if (ev && ev.icon === 'town') {
+        makeTownGate(S3, x, y);
+      } else if (ev && ev.icon === 'abbey') {
+        makeAbbey(S3, x, y);
+      } else if (ev && ev.icon === 'mine') {
+        makeMine(S3, x, y);
+      } else if (ev && ev.icon === 'shrine') {
+        makeShrine(S3, x, y);
+      } else if (ev && ev.icon === 'crypt') {
+        makeCrypt(S3, x, y);
+      } else if (ev && ev.icon === 'chest') {
+        const o = kit(scene, 'chest', cx, 0, cz, 0.3, Math.PI);
+        const lid = o && o.getObjectByName('chest_lid');
+        if (lid) S3.chests.push({ lid, x, y, open: 0 });
+        else if (!o) iconSprite(scene, ev.icon, cx, cz);
       } else if (ev && ev.icon) {
         iconSprite(scene, ev.icon, cx, cz);
       }
@@ -640,7 +817,16 @@
       const gk = groundKind(A, ch);
       if (gk === 0 && !ev && ch !== 't' && R(x, y, 7) < 0.7) for (let i = 0; i < 2; i++) L.grass.push({ x: x + 0.1 + R(x, y, i + 10) * 0.8, y: 0.06, z: y + 0.1 + R(x, y, i + 20) * 0.8, sx: 1, sy: 0.7 + R(x, y, i) * 0.6, sz: 1, r: R(x, y, i + 30) * 6, color: R(x, y, i + 40) < 0.5 ? 0x4f8a34 : 0x6aa244 });
     }));
+    // 걸을 수 있는 숲의 나무: 네 칸이 모두 숲인 칸 모서리에 (사람이 다니는 칸 가운데와 겹치지 않게)
+    for (let y = 1; y < rows; y++) for (let x = 1; x < cols; x++) {
+      const c4 = [at(x - 1, y - 1), at(x, y - 1), at(x - 1, y), at(x, y)];
+      if (!c4.includes('T') || !c4.every((c) => c === 'T' || c === 'F') || inClear(x, y) || R(x, y, 11) > 0.6) continue;
+      L.trees[R(x, y, 12) < 0.5 ? 'tree_single_A' : 'tree_single_B'].push({ x: x + (R(x, y, 13) - 0.5) * 0.16, z: y + (R(x, y, 14) - 0.5) * 0.16, s: 1.5 + R(x, y, 15) * 0.5, r: R(x, y, 16) * 6 });
+    }
     for (const [n, list] of Object.entries(L.trees)) scatter(scene, n, list);
+    for (const [n, list] of Object.entries(mounts)) scatter(scene, n, list);
+    for (const [n, list] of Object.entries(L.rocks)) scatter(scene, n, list);
+    bridge.build(scene);
     scatter(scene, 'barrel', L.barrel);
     scatter(scene, 'bucket_water', L.well);
     scatter(scene, 'waterlily_A', L.lily.filter((_, i) => i % 2 === 0));
@@ -653,6 +839,7 @@
     instances(scene, new THREE.CylinderGeometry(0.16, 0.12, 0.28, 8), M.pot, L.pot);
     instances(scene, new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ flatShading: true }), L.bush);
     instances(scene, new THREE.ConeGeometry(0.035, 0.14, 3), new THREE.MeshLambertMaterial({}), L.grass, false);
+    instances(scene, new THREE.ConeGeometry(0.07, 0.26, 4), new THREE.MeshLambertMaterial({ flatShading: true }), L.fern, false);
     instances(scene, new THREE.CylinderGeometry(0.035, 0.05, 1.5, 6), M.iron, L.lampPost);
     instances(scene, new THREE.BoxGeometry(0.16, 0.22, 0.16), M.lamp, L.lampHead, false);
     instances(scene, new THREE.ConeGeometry(0.15, 0.12, 4), M.iron, L.lampHead.map((p) => ({ ...p, y: 1.67, r: Math.PI / 4 })));
@@ -671,8 +858,7 @@
     }
     // 지도 밖: 숲, 그 너머 언덕과 산. 출구 길은 비워 둔다
     const exitRows = [];
-    map.forEach((row, y) => [...row].forEach((ch, x) => { const ev = A.events[ch]; if (ev && ev.go && !ev.door) exitRows.push([x, y]); }));
-    const forest = { trees_A_large: [], trees_A_medium: [], trees_B_large: [], trees_B_medium: [] }, hills = { hills_A_trees: [], mountain_A_grass_trees: [], mountain_B_grass_trees: [] };
+    map.forEach((row, y) => [...row].forEach((ch, x) => { const ev = A.events[ch]; if (ev && ev.go && !ev.door && (x === 0 || x === cols - 1)) exitRows.push([x, y]); }));
     const names = Object.keys(forest);
     for (let y = -MARGIN - 6; y < rows + MARGIN + 6; y += 1.6) for (let x = -MARGIN - 6; x < cols + MARGIN + 6; x += 1.6) {
       const jx = x + (R(x * 5 | 0, y * 5 | 0, 1) - 0.5) * 1.2, jy = y + (R(x * 5 | 0, y * 5 | 0, 2) - 0.5) * 1.2;
@@ -680,6 +866,7 @@
       if (out < 0.9) continue;
       if (exitRows.some(([ex, ey]) => Math.abs(jy - ey - 0.5) < 2.2 && (ex === 0 ? jx < 1 : jx > cols - 1))) continue;
       if (jy > rows && out < 3) continue; // 남쪽 바로 앞은 비워 둔다 (카메라 쪽)
+      if (inClear(jx, jy)) continue;
       if (out > MARGIN + 1) {
         if (R(x * 3 | 0, y * 3 | 0, 7) < 0.12) hills[Object.keys(hills)[Math.floor(R(x | 0, y | 0, 8) * 3)]].push({ x: jx, z: jy, s: 3 + R(x | 0, y | 0, 9) * 2.5, r: R(x | 0, y | 0, 3) * 6 });
         continue;
@@ -797,7 +984,7 @@
     const light = sun.clone(); light.shadow = sun.shadow.clone(); light.castShadow = true;
     light.intensity = 1.2; light.color.set(0xffe2b8);
     scene.add(light, light.target);
-    const S3 = { scene, sun: light, buildings: [], doors: [], npcs: new Map(), cols, rows, A, spray: null, water: null, fires: [], chests: [], indoor: true };
+    const S3 = { scene, sun: light, buildings: [], doors: [], npcs: new Map(), cols, rows, A, spray: null, water: null, fires: [], chests: [], indoor: true, edge: 1.2 };
     const at = (x, y) => (map[y] && map[y][x]) || null;
     const isWall = (x, y) => at(x, y) === 'I';
     const inside = (x, y) => x >= 0 && y >= 0 && x < cols && y < rows && !isWall(x, y);
@@ -1028,6 +1215,148 @@
     return S3;
   }
 
+  // ---------- 들판 표지: 마을 문 · 잿빛 수도원 · 옛 광산 · 별빛 사당 · 수도사 묘지 ----------
+  // 흐리게 만들 수 있게 재질을 제 것으로 바꾼 묶음을 S3.buildings 에 넣는다 (주인공을 가리면 흐려진다)
+  function landmark(S3, g) {
+    g.traverse((o) => { if (o.isMesh && !o.userData.own) { o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone(); o.userData.own = true; } });
+    S3.scene.add(g);
+    g.userData.box = new THREE.Box3().setFromObject(g);
+    S3.buildings.push(g);
+    return g;
+  }
+  // 마을 입구: 지붕 얹은 나무 문과 간판, 지도 끝에 말뚝 울타리, 그 너머에 집 몇 채
+  function makeTownGate(S3, x, y) {
+    const M = materials(), B = Batch(), cx = x + 0.5, cz = y + 0.5;
+    for (const sz of [-0.66, 0.66]) {
+      B.box(0.2, 1.95, 0.2, M.timber, cx, 0.98, cz + sz);
+      B.box(0.32, 0.24, 0.32, M.stone, cx, 0.12, cz + sz, 1);
+      B.box(0.06, 0.62, 0.3, M.canvasR, cx + 0.13, 1.25, cz + sz); // 붉은 깃발
+      B.box(0.07, 0.05, 0.34, M.gold, cx + 0.13, 1.57, cz + sz);
+    }
+    B.box(0.24, 0.16, 1.9, M.timber, cx, 1.86, cz);
+    B.box(0.16, 0.1, 1.6, M.timber, cx, 1.55, cz);
+    for (const side of [1, -1]) { const g = new THREE.BoxGeometry(0.3, 0.05, 2.0); g.rotateZ(-side * 0.5); B.add(g, M.roof, cx + side * 0.13, 2.0, cz); }
+    B.box(0.07, 0.08, 2.04, M.ridge, cx, 2.08, cz);
+    // 남쪽(카메라 쪽)을 보는 간판
+    B.box(0.08, 0.95, 0.08, M.timber, cx + 0.42, 0.47, cz + 0.88);
+    const g = B.build(new THREE.Group(), true);
+    const bd = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.36, 0.05), [M.timber, M.timber, M.timber, M.timber, new THREE.MeshLambertMaterial({ map: signTexture('로엘') }), M.timber]);
+    bd.position.set(cx + 0.42, 0.86, cz + 0.93); bd.castShadow = true; g.add(bd);
+    landmark(S3, g);
+    // 말뚝 울타리: 지도 서쪽 끝 칸, 길만 비우고
+    const stakes = [];
+    for (let z = y - 3; z <= y + 3.9; z += 0.22) if (Math.abs(z - cz) > 0.75) stakes.push({ x: 0.55 + (hash(z * 9 | 0, 3) - 0.5) * 0.06, y: 0.5, z, sx: 1, sy: 0.85 + hash(z * 9 | 0, 5) * 0.3, sz: 1 });
+    instances(S3.scene, new THREE.CylinderGeometry(0.075, 0.085, 1, 6), M.wood, stakes);
+    instances(S3.scene, new THREE.ConeGeometry(0.08, 0.2, 6), M.timber, stakes.map((p) => ({ ...p, y: 0.5 + p.sy / 2 + 0.1, sy: 1 })));
+    for (const b of [{ x0: -2, x1: -1, y0: y - 3, y1: y - 2 }, { x0: -3, x1: -2, y0: y + 1, y1: y + 2 }, { x0: -6, x1: -5, y0: y - 2, y1: y - 1 }, { x0: -7, x1: -5, y0: y + 2, y1: y + 3 }]) {
+      S3.buildings.push(makeBuilding({ ...b, doors: [], church: false }, S3.scene, S3.doors));
+    }
+  }
+  // 잿빛 수도원: 산 위의 돌 성당 (마을 성당과 같은 짜임, 더 크게). 정문이 잠겨 있으면 검은 사슬
+  function makeAbbey(S3, x, y) {
+    const M = materials();
+    const g = makeBuilding({ x0: x - 2, x1: x + 2, y0: y - 2, y1: y, doors: [{ x, y, name: '잿빛 수도원' }], church: true }, S3.scene, S3.doors);
+    S3.buildings.push(g);
+    const d = S3.doors[S3.doors.length - 1];
+    d.lock = 'abbey_open';
+    const B = Batch(), dz = y + 1.08, cx = x + 0.5, chain = new THREE.MeshLambertMaterial({ color: 0x55565c });
+    for (const s of [1, -1]) for (let t = -0.5; t <= 0.5; t += 0.085) {
+      const link = new THREE.TorusGeometry(0.05, 0.017, 4, 8);
+      if (Math.round(t / 0.085) % 2) link.rotateY(Math.PI / 2);
+      link.rotateZ(s * 0.9);
+      B.add(link, chain, cx + t, 0.68 + s * t * 1.15, dz);
+    }
+    B.box(0.2, 0.22, 0.1, M.gold, cx, 0.68, dz + 0.04);
+    B.box(0.12, 0.1, 0.04, M.iron, cx, 0.84, dz + 0.04);
+    d.chains = B.build(new THREE.Group(), true);
+    g.add(d.chains);
+    // 수도원 둘레 바위
+    const rocks = [[-2.8, 0.6, 2.8], [2.9, 0.7, 3], [-2.4, 0.9, 1.8], [3.1, -0.4, 2.2]];
+    rocks.forEach(([ox, oz, s], i) => kit(S3.scene, i % 2 ? 'rock_single_D' : 'rock_single_B', cx + ox, 0, y + oz, s, i * 1.7));
+  }
+  // 옛 광산: 바위 둔덕에 나무 틀을 댄 갱도, 밖으로 나온 레일, 상자와 손수레
+  function makeMine(S3, x, y) {
+    const M = materials(), B = Batch(), cx = x + 0.5, cz = y + 0.5, fz = cz + 0.06;
+    const g = new THREE.Group();
+    kit(g, 'mountain_C', cx + 0.1, -0.05, cz - 0.5, [0.72, 0.72, 0.56], Math.PI / 3);
+    kit(g, 'rock_single_B', cx - 0.62, 0, fz - 0.12, 3, 0.4);
+    kit(g, 'rock_single_D', cx + 0.6, 0, fz - 0.1, 3.2, 2.1);
+    const hole = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.84), M.dark); hole.position.set(cx, 0.42, fz - 0.03); g.add(hole);
+    for (const s of [-1, 1]) {
+      B.box(0.11, 0.92, 0.11, M.timber, cx + s * 0.37, 0.46, fz);
+      const brace = new THREE.BoxGeometry(0.06, 0.3, 0.06); brace.rotateZ(s * 0.7); B.add(brace, M.timber, cx + s * 0.28, 0.82, fz + 0.02);
+    }
+    B.box(0.96, 0.13, 0.15, M.timber, cx, 0.96, fz);
+    for (const s of [-1, 1]) B.box(0.03, 0.03, 0.6, M.iron, cx + s * 0.15, 0.03, fz + 0.25);
+    for (let i = 0; i < 5; i++) B.box(0.44, 0.025, 0.07, M.wood, cx, 0.013, fz - 0.02 + i * 0.13);
+    B.box(0.1, 0.13, 0.1, M.lamp, cx - 0.3, 0.8, fz + 0.1);
+    B.build(g, true);
+    kit(g, 'crate_A_big', cx - 0.52, 0, fz + 0.34, 1.7, 0.3);
+    kit(g, 'crate_A_big', cx - 0.5, 0.36, fz + 0.32, 1.3, 0.9);
+    kit(g, 'wheelbarrow', cx + 0.56, 0, fz + 0.42, 1.8, 2.6);
+    landmark(S3, g);
+    const lamp = new THREE.PointLight(0xffb060, 1.4, 3, 1.6); lamp.position.set(cx - 0.3, 0.8, fz + 0.3);
+    S3.scene.add(lamp); S3.fires.push({ light: lamp, base: 1.4, flames: [] });
+  }
+  // 별빛 사당: 네 기둥에 이끼 낀 지붕, 가운데 받침돌 위 물그릇에 별빛이 고인다
+  function makeShrine(S3, x, y) {
+    const M = materials(), B = Batch(), K = 1.25, X = x + 0.5, Z = y + 0.5;
+    B.box(0.98, 0.1, 0.98, M.stone, 0, 0.05, 0, 1);
+    B.box(0.82, 0.08, 0.82, M.stone, 0, 0.14, 0, 1);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) B.box(0.1, 0.96, 0.1, M.stone, sx * 0.33, 0.66, sz * 0.33, 1);
+    for (const s of [-1, 1]) { B.box(0.84, 0.1, 0.12, M.stone, 0, 1.18, s * 0.33, 1); B.box(0.12, 0.1, 0.84, M.stone, s * 0.33, 1.18, 0, 1); }
+    const hd = 0.54, rh = 0.5, ang = Math.atan2(rh, hd), len = Math.hypot(hd, rh) + 0.06;
+    for (const s of [1, -1]) B.add(new THREE.BoxGeometry(1.06, 0.07, len), M.moss, 0, 1.23 + rh / 2 + 0.03, s * hd / 2, s * ang, 0, 0.5, true);
+    B.box(1.1, 0.08, 0.1, M.ridgeSlate, 0, 1.23 + rh + 0.06, 0);
+    for (const s of [-1, 1]) { const sh = new THREE.Shape(); sh.moveTo(-hd + 0.08, 0); sh.lineTo(hd - 0.08, 0); sh.lineTo(0, rh - 0.04); sh.closePath(); const t = new THREE.ShapeGeometry(sh); t.rotateY(s * Math.PI / 2); B.add(t, M.stone, s * 0.4, 1.23, 0); }
+    B.add(new THREE.CylinderGeometry(0.1, 0.13, 0.5, 8), M.stone, 0, 0.43, 0);
+    B.add(new THREE.CylinderGeometry(0.2, 0.12, 0.1, 12), M.stone, 0, 0.72, 0);
+    const g = B.build(new THREE.Group(), true);
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0xa8e0ff });
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(0.16, 16), glowMat); pool.rotation.x = -Math.PI / 2; pool.position.set(0, 0.775, 0); g.add(pool);
+    g.position.set(X, 0, Z); g.scale.setScalar(K);
+    landmark(S3, g);
+    pool.material = glowMat;
+    const light = new THREE.PointLight(0x8ccfff, 2.2, 4, 1.4); light.position.set(X, 1.1, Z);
+    S3.scene.add(light);
+    // 별빛 알갱이: 물그릇에서 천천히 떠오른다
+    const N = 30, pos = new Float32Array(N * 3), seed = new Float32Array(N);
+    for (let i = 0; i < N; i++) seed[i] = Math.random();
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xe0f4ff, size: 0.06, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending }));
+    S3.scene.add(pts);
+    S3.glows.push({ light, base: 2.2, mat: glowMat, geo, seed, N, x: X, y: 0.78 * K, z: Z });
+  }
+  // 수도사 묘지: 숲속 납골당 (입구는 동쪽), 둘레에 비석과 마른 나무, 등불, 떠다니는 푸른 불
+  function makeCrypt(S3, x, y) {
+    const cx = x + 0.5, cz = y + 0.5, scene = S3.scene;
+    const g = new THREE.Group();
+    if (!kit(g, 'crypt', cx - 0.32, 0, cz - 0.05, 0.22, Math.PI / 2)) { iconSprite(scene, 'crypt', cx, cz); return; }
+    landmark(S3, g);
+    g.traverse((o) => { if (o.isMesh) o.material.color.setRGB(0.6, 0.62, 0.7); }); // 주황 지붕을 잿빛 이끼 돌로
+    const graves = [[-3.2, -1.6, 'grave_A'], [-2.3, -1.9, 'gravestone'], [-1.4, -1.45, 'gravemarker_A'], [-3.4, -0.4, 'gravemarker_B'], [-2.5, 0.2, 'grave_B'],
+      [-3.0, 1.1, 'gravestone'], [-1.9, 1.2, 'gravemarker_A'], [0.2, 1.25, 'grave_A'], [1.3, 1.1, 'gravemarker_B'], [2.4, 1.3, 'gravestone'], [3.3, 1.0, 'grave_B'], [-4.2, -1.0, 'grave_B']];
+    const sc = { grave_A: 0.25, grave_B: 0.25, gravestone: 0.3, gravemarker_A: 0.4, gravemarker_B: 0.4 };
+    graves.forEach(([ox, oz, n], i) => kit(scene, n, cx + ox, 0, cz + oz, sc[n], (hash(i, 7) - 0.5) * 0.5));
+    kit(scene, 'tree_dead_large', cx - 3.9, 0, cz - 2.4, 0.42, 0.8);
+    kit(scene, 'tree_dead_medium', cx - 4.5, 0, cz + 0.4, 0.4, 2.2);
+    kit(scene, 'tree_dead_small', cx + 4.1, 0, cz + 1.2, 0.36, 4);
+    kit(scene, 'tree_dead_medium', cx + 2.2, 0, cz - 2.5, 0.42, 1.2);
+    kit(scene, 'fence', cx - 2.4, 0, cz + 1.75, 0.22);
+    kit(scene, 'fence_broken', cx + 1.9, 0, cz + 1.75, 0.22);
+    kit(scene, 'post_lantern', cx + 0.6, 0, cz + 0.62, 0.36, -Math.PI / 2);
+    const lamp = new THREE.PointLight(0xffc070, 1.2, 3, 1.6); lamp.position.set(cx + 0.6, 1.0, cz + 0.9);
+    scene.add(lamp); S3.fires.push({ light: lamp, base: 1.2, flames: [] });
+    // 푸른 불 (도깨비불)
+    const halo = canvasTex(64, (c, s) => { const gr = c.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2); gr.addColorStop(0, 'rgba(200,240,255,1)'); gr.addColorStop(0.3, 'rgba(110,190,255,0.6)'); gr.addColorStop(1, 'rgba(60,120,255,0)'); c.fillStyle = gr; c.fillRect(0, 0, s, s); });
+    const blue = new THREE.PointLight(0x6ab8ff, 1.1, 3.2, 1.5); scene.add(blue);
+    [[-2.6, -0.8], [-1.6, 0.6], [1.6, 0.9], [-3.4, 0.5]].forEach(([ox, oz], i) => {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: halo, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      sp.scale.set(0.42, 0.42, 1); scene.add(sp);
+      S3.wisps.push({ obj: sp, x: cx + ox, z: cz + oz, ph: i * 1.9, light: i === 0 ? blue : null });
+    });
+  }
+
   function makeStall(scene, x, z, rot) {
     const M = materials(), B = Batch();
     B.box(0.86, 0.5, 0.42, M.wood, 0, 0.25, -0.12);
@@ -1077,11 +1406,11 @@
     const g = B.build(new THREE.Group());
     g.position.set(x, 0, z); scene.add(g);
   }
-  function makeSignpost(scene, x, z, title) {
+  function makeSignpost(scene, x, z, text) {
     const M = materials(), B = Batch();
     B.box(0.08, 0.95, 0.08, M.timber, 0, 0.47, 0);
     const g = B.build(new THREE.Group());
-    const bd = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.34, 0.05), [M.timber, M.timber, M.timber, M.timber, new THREE.MeshLambertMaterial({ map: signTexture((title.split(' ').pop() || '').slice(0, 2)) }), M.timber]);
+    const bd = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.34, 0.05), [M.timber, M.timber, M.timber, M.timber, new THREE.MeshLambertMaterial({ map: signTexture(text) }), M.timber]);
     bd.position.set(0, 0.85, 0.05); bd.castShadow = true;
     g.add(bd); g.position.set(x, 0, z); scene.add(g);
   }
@@ -1112,7 +1441,7 @@
   let lastHero = null, clockT = 0;
   const ray = { o: null, d: null };
 
-  // v: { area, hero: {x, y, dir}, moving, movers: [{x, y, npc, key}], ok(x, y), done(x, y), shake, battle, dt, reduceMotion }
+  // v: { area, hero: {x, y, dir}, moving, movers: [{x, y, npc, key}], ok(x, y), done(x, y), flag(name), shake, battle, dt, reduceMotion }
   function frame(v) {
     if (!W3.ready) return false;
     const canvas = renderer.domElement;
@@ -1189,9 +1518,11 @@
     }
     for (const [k, n] of S3.npcs) n.root.visible = live.has(k);
 
-    // 문: 앞에 서면 안으로 열린다
+    // 문: 앞에 서면 안으로 열린다 (잠긴 문은 열쇠 깃발이 설 때까지 닫혀 있고 사슬이 감겨 있다)
     for (const d of S3.doors) {
-      const near = Math.abs(hx - (d.x + 0.5)) < 0.6 && hz - d.y < 1.9 && hz > d.y;
+      const locked = !!d.lock && !(v.flag && v.flag(d.lock));
+      if (d.chains) d.chains.visible = locked;
+      const near = !locked && Math.abs(hx - (d.x + 0.5)) < 0.6 && hz - d.y < 1.9 && hz > d.y;
       d.open += ((near ? 1 : 0) - d.open) * Math.min(1, dt * 8);
       d.pivot.rotation.y = -d.open * 1.6;
     }
@@ -1211,6 +1542,25 @@
       f.light.intensity = f.base * n;
       f.flames.forEach((m, i) => m.scale.set(1, 0.75 + 0.5 * vnoise(clockT * 8 + i * 3, i), 1));
     }
+    // 별빛 사당: 물빛이 숨 쉬듯 밝아졌다 어두워지고, 알갱이가 떠오른다
+    for (const gl of S3.glows || []) {
+      const k = 0.8 + 0.2 * Math.sin(clockT * 1.6);
+      gl.light.intensity = gl.base * k;
+      gl.mat.color.setRGB(0.6 + 0.2 * k, 0.82 + 0.1 * k, 1);
+      const a = gl.geo.attributes.position.array;
+      for (let i = 0; i < gl.N; i++) {
+        const t = (clockT * 0.25 + gl.seed[i]) % 1, ang = gl.seed[i] * 50 + clockT * 0.5;
+        a[i * 3] = gl.x + Math.cos(ang) * 0.12 * (1 + t); a[i * 3 + 1] = gl.y + t * 0.9; a[i * 3 + 2] = gl.z + Math.sin(ang) * 0.12 * (1 + t);
+      }
+      gl.geo.attributes.position.needsUpdate = true;
+    }
+    // 묘지의 푸른 불: 비석 사이를 천천히 떠다닌다
+    for (const w of S3.wisps || []) {
+      const t = clockT * 0.5 + w.ph;
+      w.obj.position.set(w.x + Math.sin(t * 0.7) * 0.5, 0.55 + Math.sin(t * 1.9) * 0.12, w.z + Math.cos(t * 0.53) * 0.35);
+      w.obj.material.opacity = 0.65 + 0.35 * Math.sin(t * 3.1);
+      if (w.light) { w.light.position.copy(w.obj.position); w.light.intensity = 0.8 + 0.4 * Math.sin(t * 3.1); }
+    }
     if (S3.chests) for (const c of S3.chests) {
       c.open += ((v.done && v.done(c.x, c.y) ? 1 : 0) - c.open) * Math.min(1, dt * 6);
       c.lid.rotation.x = -c.open * 1.2;
@@ -1223,7 +1573,7 @@
     const dist = across / (2 * Math.tan(fovR / 2) * aspect) * 1.02;
     const pitch = THREE.MathUtils.degToRad(52);
     const halfW = across / 2;
-    const tx = S3.cols <= across ? S3.cols / 2 : Math.max(halfW - 1.2, Math.min(S3.cols - halfW + 1.2, hx));
+    const tx = S3.cols <= across ? S3.cols / 2 : Math.max(halfW - S3.edge, Math.min(S3.cols - halfW + S3.edge, hx));
     const tz = S3.indoor ? Math.max(S3.rows / 2 - 0.6, Math.min(S3.rows / 2 + 0.4 + Math.max(0, S3.rows - 9) * 0.6, hz)) : Math.max(3.2, Math.min(S3.rows - 1.8, hz));
     if (!camT.ok || v.reduceMotion) { camT.x = tx; camT.z = tz; camT.ok = true; }
     const k = 1 - Math.exp(-dt * 7);
@@ -1232,6 +1582,7 @@
     if (v.shake) { sx = Math.sin(clockT * 70) * 0.08 * v.shake; sz = Math.cos(clockT * 63) * 0.08 * v.shake; }
     camera.position.set(camT.x + sx, Math.sin(pitch) * dist, camT.z + Math.cos(pitch) * dist + sz);
     camera.lookAt(camT.x + sx, 0.4, camT.z + sz);
+    CUT.hero.value.set(hx, 0.55, hz); CUT.r.value = S3.indoor ? 0.7 : 0.95;
     S3.sun.position.set(camT.x + 7, 16, camT.z + 9);
     S3.sun.target.position.set(camT.x, 0, camT.z);
 

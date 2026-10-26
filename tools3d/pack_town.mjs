@@ -1,6 +1,9 @@
 // KayKit 소품 여러 개를 한 GLB로 (장면 하나 = 소품 하나, 장면 이름 = 소품 이름), 같은 텍스처는 하나로. Medieval Hexagon → town, Dungeon Remastered → interior
 // 집 안 묶음 예: node pack_town.mjs <Dungeon-Remastered>/addons interior.glb barrel_large keg bottle_A_brown bottle_B_green bottle_C_brown candle_lit candle_triple candle_thin_lit stool chest plate_food_A plate_food_B plate_small table_medium table_small sword_shield coin_stack_small shelf_small_candles crates_stacked
 // 그다음 { "interior": base64 } 로 models3d/interior.json 에 담는다
+// 들판 묶음: Medieval Hexagon 과 Halloween Bits 의 gltf 폴더를 한 폴더(<src>) 아래에 모아 두고
+//   node pack_town.mjs <src> field.glb mountain_A mountain_B mountain_C rock_single_B rock_single_D crypt gravestone grave_A grave_B gravemarker_A gravemarker_B tree_dead_large tree_dead_medium tree_dead_small fence fence_broken post_lantern
+//   → { "field": base64 } 로 models3d/field.json
 import { NodeIO } from '@gltf-transform/core';
 import { dedup, prune, mergeDocuments, unpartition } from '@gltf-transform/functions';
 import fs from 'fs'; import path from 'path';
