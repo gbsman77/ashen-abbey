@@ -3181,6 +3181,8 @@
     b.addEventListener('click', (e) => { if (e.detail === 0) ACTIONS[act](); });
   });
   window.addEventListener('blur', stopHold);
+  // 길게 누름 메뉴·그림 끌기·글자 고르기를 화면 전체에서 막는다 (버튼을 누르고 있어도 걷기만 이어진다)
+  for (const ev of ['contextmenu', 'dragstart', 'selectstart']) document.addEventListener(ev, (e) => e.preventDefault());
 
   // 화면 밀기: 위로 밀면 전진, 아래로 후퇴, 옆으로 회전(지상에선 그쪽으로 걷기), 짧게 톡 치면 조사
   (function swipe() {
@@ -3202,7 +3204,7 @@
     el.addEventListener('pointercancel', () => { id = null; });
   })();
   // ui/ 그림: 제목(title), SAVE/LOAD/NEW(save·load·new), 던전 화면 테두리(frame, 가운데가 투명한 16:10)
-  const uiArt = (file, done) => { const img = new Image(); img.alt = ''; img.onload = () => done(img); img.src = 'ui/' + file + '.png'; };
+  const uiArt = (file, done) => { const img = new Image(); img.alt = ''; img.draggable = false; img.onload = () => done(img); img.src = 'ui/' + file + '.png'; };
   uiArt('title', (img) => { const h = document.querySelector('header h1'); h.setAttribute('aria-label', D.title); h.textContent = ''; h.append(img); h.classList.add('art'); });
   for (const [id, file] of [['btnSave', 'save'], ['btnLoad', 'load'], ['btnNew', 'new']]) {
     uiArt(file, (img) => { const b = $(id); b.setAttribute('aria-label', b.textContent); b.textContent = ''; b.append(img); b.classList.add('art'); });
@@ -3215,7 +3217,7 @@
     const img = new Image();
     img.onload = () => {
       btn.setAttribute('aria-label', btn.textContent.replace(/^\S+/, '').trim());
-      img.alt = ''; btn.textContent = ''; btn.append(img); btn.classList.add('art');
+      img.alt = ''; img.draggable = false; btn.textContent = ''; btn.append(img); btn.classList.add('art');
       if (++padArt === padBtns.length) btn.parentElement.classList.add('art');
     };
     img.src = 'buttons/' + btn.dataset.act + '.png';

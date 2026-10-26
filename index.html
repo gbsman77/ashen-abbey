@@ -47,7 +47,10 @@ body {
 * { box-sizing: border-box; }
 /* 터치: 두 번 눌러 확대·길게 눌러 메뉴·파란 반짝임을 막아 게임 조작이 씹히지 않게 */
 html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
-button, .viewFrame, .pad { -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body, button, .viewFrame, .pad { -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* 그림은 손가락을 받지 않는다: 길게 눌러도 아이폰 '저장·공유·복사' 메뉴가 뜨지 않고, 누름은 바깥 버튼이 받는다 */
+img, canvas { -webkit-touch-callout: none; -webkit-user-drag: none; user-drag: none; }
+img { pointer-events: none; }
 .viewFrame { touch-action: none; }
 .event, .ending { touch-action: pan-y; }
 [hidden] { display: none !important; }
