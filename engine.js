@@ -2672,8 +2672,9 @@
 
   // ----- 3D로 보기: 같은 격자를 world3d.js 가 3D로 그린다. 전투 창은 2D 캔버스를 투명하게 겹쳐 그린다 -----
   const W3D_KEY = 'ashen-abbey-3d';
-  let use3D = false;
-  try { use3D = localStorage.getItem(W3D_KEY) === '1'; } catch (e) { /* 저장소 없음 */ }
+  // 처음부터 3D로 본다. 3D 단추(V)로 2D를 고르면 그 뒤로는 2D (저장소에 '0')
+  let use3D = true;
+  try { use3D = localStorage.getItem(W3D_KEY) !== '0'; } catch (e) { /* 저장소 없음 */ }
   const on3D = () => use3D && inWorld() && !!window.World3D && World3D.ready && World3D.wants(S.area);
   // 던전 전투를 3D 무대에서 (광산 m* · 묘지 c* · 수도원 b* 무대)
   const battleIn3D = () => use3D && !inWorld() && !!S.battle && !!window.World3D && World3D.ready && foeSprites.length > 0;
