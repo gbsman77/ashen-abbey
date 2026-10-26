@@ -1157,7 +1157,7 @@
 
   // ---------- 3D 장면 ----------
   let renderer, scene, camera, torch, level, dust, props = [], doors = [], lights3d = [];
-  let builtFloor = null;
+  let builtFloor = null, builtKit = false;
   const cam = { x: 0, z: 0, yaw: 0, targetYaw: 0, bob: 0, bump: null };
   let M = null; // 재질 모음
 
@@ -1276,16 +1276,20 @@
     if (!S || !scene) return;
     const F = D.floors[S.floor] || {};
     for (const mat of [M.wall, M.floor, M.ceil]) mat.color.set(F.tint != null ? F.tint : 0xffffff).multiplyScalar(mat.userData.gain || 1);
+    // 3D 소품은 층 빛깔을 절반만 입힌다 (통·관 빛깔이 살도록)
+    const half = new THREE.Color(0xffffff).lerp(new THREE.Color(F.tint != null ? F.tint : 0xffffff), 0.5);
+    for (const mat of Object.values(KM)) mat.color.copy(mat.userData.base).multiply(half);
     const fog = new THREE.Color(F.fog != null ? F.fog : 0x060508);
     scene.fog.color.copy(fog); scene.background = fog;
   }
   function buildLevel() {
     if (level) {
       scene.remove(level);
-      level.traverse((o) => { if (o.material && o.material.map && o.material.userData.own) o.material.map.dispose(); });
+      level.traverse((o) => { if (o.material && o.material.isMaterial && o.material.map && o.material.userData.own) o.material.map.dispose(); if (o.isInstancedMesh) o.dispose(); });
     }
     level = new THREE.Group();
-    props = []; doors = []; lights3d = [];
+    props = []; doors = []; lights3d = []; lamps = []; flames = [];
+    builtKit = kitOn();
     const fl = S.floor, map = D.floors[fl].map;
     const floorGeo = geo('floor', () => new THREE.PlaneGeometry(CELL, CELL));
     for (let y = 0; y < map.length; y++) {
@@ -1310,6 +1314,7 @@
         if (ev && ev.prop) buildProp(ev, x, y, cx, cz);
       }
     }
+    if (builtKit) decorate(fl);
     scene.add(level);
     builtFloor = fl;
     tintLevel();
@@ -1353,7 +1358,9 @@
     for (let d = 0; d < 4; d++) if (kindOf(fl, x + DX[d], y + DY[d]) !== 'wall') { openDir = d; break; }
     const wallDir = [0, 1, 2, 3].find((d) => kindOf(fl, x + DX[d], y + DY[d]) === 'wall');
 
-    if (type === 'backpack') {
+    if (builtKit && kitEvent(p, x, y, cx, cz)) {
+      // 3D로 보기: 소품 모델로 바꿔 놓았다
+    } else if (type === 'backpack') {
       addMesh(g, new THREE.BoxGeometry(0.5, 0.42, 0.3), M.leather, 0.2, 0.21, -0.3, 0.4, { cast: true });
       addMesh(g, new THREE.BoxGeometry(0.52, 0.06, 0.34), M.leather, 0.2, 0.43, -0.3, 0.4, { cast: true });
       const sheet = addMesh(g, new THREE.PlaneGeometry(0.3, 0.22), M.bone, -0.2, 0.012, -0.1, 0);
@@ -1445,11 +1452,393 @@
 
   function refreshProps() {
     for (const p of props) {
+      if (!p.ev.prop.type) continue;   // 사건 없는 장식 (종)
       const done = p.ev.once && S.done[p.key];
       if (p.glow) p.glow.visible = !done;
       if (p.ev.prop.vanish) p.group.visible = !done;
       if (p.barrier) for (const o of p.barrier.objs) o.visible = !has(p.barrier.item);
     }
+  }
+
+  // ---------- 3D로 보기: 던전 소품 (models3d/crawl.json, KayKit Dungeon Remastered · Halloween Bits, CC0) ----------
+  // 3D로 보기를 켜면 층의 테마(수도원 b · 묘지 c · 광산 m)에 맞춰 벽 횃불·깃발·책장·통·상자·관·해골·버팀목·수정을 놓는다.
+  // 1인칭 격자 이동은 그대로. 소품은 벽에 붙이고 통로 가운데는 비워 둔다. 끄면 예전 그대로
+  let KIT3 = null, kitLoading = false, lamps = [], flames = [], lampPool = null;
+  const KG = {}, KM = {};
+  const kitOn = () => use3D && !!KIT3;
+  function wantKit() {
+    if (KIT3 || kitLoading || !use3D || !window.World3D || !World3D.ready || !World3D.crawlKit) return;
+    kitLoading = true;
+    World3D.crawlKit().then((k) => { KIT3 = k; }).catch(() => { /* 소품이 없으면 예전 화면 */ }).finally(() => { kitLoading = false; });
+  }
+  function kitMat(m) {
+    if (KM[m.key]) return KM[m.key];
+    let map = null;
+    if (m.image) {
+      map = new THREE.Texture(m.image);
+      map.flipY = false; map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4; map.needsUpdate = true;
+    }
+    const mat = new THREE.MeshStandardMaterial({ map, color: m.color, roughness: m.rough != null ? Math.max(0.55, m.rough) : 0.8, metalness: Math.min(0.3, m.metal || 0) });
+    mat.userData.base = mat.color.clone();
+    return (KM[m.key] = mat);
+  }
+  function kitParts(name) {
+    if (KG[name]) return KG[name];
+    const k = KIT3 && KIT3[name];
+    if (!k) return null;
+    return (KG[name] = k.parts.map((p) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(p.pos, 3));
+      if (p.uv) g.setAttribute('uv', new THREE.BufferAttribute(p.uv, 2));
+      g.setIndex(new THREE.BufferAttribute(p.idx, 1));
+      if (p.nor) g.setAttribute('normal', new THREE.BufferAttribute(p.nor, 3)); else g.computeVertexNormals();
+      g.computeBoundingSphere();
+      return { geo: g, mat: kitMat(p.mat) };
+    }));
+  }
+  const kitBox = (n) => KIT3[n] || { min: [0, 0, 0], max: [0, 0, 0] };
+  // 모델 꼭대기 (횃불 불꽃 자리): 가장 높은 꼭짓점들의 가운데
+  const TIP = {};
+  function kitTip(n) {
+    if (TIP[n]) return TIP[n];
+    const top = kitBox(n).max[1] - 0.06, t = [0, 0, 0];
+    let c = 0;
+    for (const pt of (KIT3[n] || { parts: [] }).parts) for (let i = 0; i < pt.pos.length; i += 3) if (pt.pos[i + 1] > top) { t[0] += pt.pos[i]; t[1] += pt.pos[i + 1]; t[2] += pt.pos[i + 2]; c++; }
+    return (TIP[n] = c ? t.map((v) => v / c) : [0, kitBox(n).max[1], 0]);
+  }
+  // 하나뿐인 소품(사건 칸)은 보통 메시로 (사건이 끝나면 감출 수 있게)
+  function kitMesh(group, n, x, y, z, ry, s) {
+    const parts = kitParts(n);
+    if (!parts) return null;
+    const g = new THREE.Group();
+    g.position.set(x, y, z); g.rotation.y = ry || 0; g.scale.setScalar(s);
+    for (const pt of parts) { const m = new THREE.Mesh(pt.geo, pt.mat); m.castShadow = m.receiveShadow = true; g.add(m); }
+    group.add(g);
+    return g;
+  }
+  // 코드로 만드는 소품 (광산 버팀목·수정, 종)
+  const PROC = {};
+  function procPart(n) {
+    if (PROC[n]) return PROC[n];
+    const crystal = () => new THREE.MeshStandardMaterial({ color: 0x9ad8ff, emissive: 0x2a7cff, emissiveIntensity: 1.1, roughness: 0.3, flatShading: true });
+    const make = {
+      post: () => [new THREE.BoxGeometry(0.18, WALL_H, 0.2), M.wood],
+      beam: () => [new THREE.BoxGeometry(CELL, 0.22, 0.24), M.wood],
+      brace: () => [new THREE.BoxGeometry(0.12, 0.7, 0.12), M.wood],
+      crystal: () => [new THREE.ConeGeometry(0.1, 0.6, 6), crystal()],
+      // 서고 책장: 앞면에 칸마다 책등을 그린 나무 상자
+      books: () => {
+        const c = document.createElement('canvas'); c.width = 256; c.height = 320;
+        const g = c.getContext('2d'), rows = 4, rh = 320 / rows;
+        g.fillStyle = '#3a2414'; g.fillRect(0, 0, 256, 320);
+        const BC = ['#6a1e1a', '#2a3a5a', '#3a4a22', '#6a4a1a', '#4a2a3a', '#7a6a4a', '#22302a'];
+        for (let r = 0; r < rows; r++) {
+          g.fillStyle = '#140c06'; g.fillRect(10, r * rh + 8, 236, rh - 18);
+          for (let x = 12; x < 240; ) {
+            const w = 8 + hash2(x, r * 7) * 12, h = rh - 26 - hash2(r, x) * 18;
+            if (hash2(x * 3, r) < 0.08) { x += w * 1.5; continue; }   // 빈 자리
+            g.fillStyle = BC[Math.floor(hash2(x, r + 99) * BC.length)];
+            g.fillRect(x, r * rh + rh - 10 - h, w - 1, h);
+            g.fillStyle = 'rgba(230,200,120,0.5)'; g.fillRect(x + 1, r * rh + rh - 10 - h + 6, w - 3, 2);
+            x += w;
+          }
+          g.fillStyle = '#5a3a20'; g.fillRect(0, r * rh + rh - 10, 256, 10);
+        }
+        g.fillStyle = '#5a3a20'; g.fillRect(0, 0, 10, 320); g.fillRect(246, 0, 10, 320);
+        const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+        const front = new THREE.MeshStandardMaterial({ map: t, roughness: 0.85 });
+        return [new THREE.BoxGeometry(CELL - 0.02, 2.1, 0.3), [M.wood, M.wood, M.wood, M.wood, front, M.wood]];
+      },
+      rock: () => {
+        const g = new THREE.IcosahedronGeometry(0.5, 1), pos = g.attributes.position;
+        for (let i = 0; i < pos.count; i++) { const k = 0.8 + hash2(Math.round(pos.getX(i) * 40) + 9, Math.round(pos.getY(i) * 40) * 7 + Math.round(pos.getZ(i) * 40)) * 0.4; pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * 0.7, pos.getZ(i) * k); }
+        g.computeVertexNormals();
+        return [g, new THREE.MeshStandardMaterial({ color: 0x6a5a48, roughness: 0.95, flatShading: true })];
+      }
+    }[n]();
+    return (PROC[n] = [{ geo: make[0], mat: make[1] }]);
+  }
+  // 같은 소품끼리 InstancedMesh 하나로 그린다
+  function buildDeco(list) {
+    const by = {};
+    for (const it of list) (by[it.n] || (by[it.n] = [])).push(it);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(0, 0, 0, 'YXZ'), p = new THREE.Vector3(), sc = new THREE.Vector3();
+    for (const [n, items] of Object.entries(by)) {
+      const parts = n[0] === '@' ? procPart(n.slice(1)) : kitParts(n);
+      if (!parts) continue;
+      for (const pt of parts) {
+        const im = new THREE.InstancedMesh(pt.geo, pt.mat, items.length);
+        items.forEach((it, i) => {
+          e.set(it.rx || 0, it.ry || 0, it.rz || 0); q.setFromEuler(e);
+          sc.set(it.sx || it.s, it.sy || it.s, it.sz || it.s);
+          im.setMatrixAt(i, m4.compose(p.set(it.x, it.y, it.z), q, sc));
+        });
+        im.castShadow = im.receiveShadow = true;
+        im.computeBoundingSphere();
+        level.add(im);
+      }
+    }
+  }
+  // 불꽃: 빛나는 그림 + (가까운 몇 개만) 점광원
+  function addFlame(x, y, z, color, power, size) {
+    const tex = color === 'blue' ? (M.glowBlue || (M.glowBlue = glowTexture('rgba(200,235,255,1)', 'rgba(60,140,255,0.35)'))) : M.glowWarm;
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    s.position.set(x, y, z); s.scale.setScalar(size || 0.45);
+    level.add(s);
+    const ph = flames.length * 2.3;
+    flames.push({ s, ph, base: size || 0.45 });
+    lamps.push({ x, y, z, color: color === 'blue' ? 0x5aa8ff : 0xff9a50, power: power || 3, ph });
+  }
+  // 점광원 수는 늘 같게 (셰이더를 다시 만들지 않게) 두고, 카메라에 가까운 불꽃으로 옮겨 단다
+  const LAMP_N = 4;
+  function lightLamps() {
+    const cx = camera.position.x, cz = camera.position.z;
+    const fx = -Math.sin(cam.yaw), fz = -Math.cos(cam.yaw);
+    const near = lamps.map((l) => {
+      const dx = l.x - cx, dz = l.z - cz;
+      return { l, d: Math.hypot(dx, dz) - Math.max(0, dx * fx + dz * fz) * 0.4 };   // 앞쪽 불꽃을 조금 더 먼저
+    }).filter((o) => o.d < 11).sort((a, b) => a.d - b.d);
+    lampPool.forEach((pl, i) => {
+      const o = near[i];
+      if (!o) { pl.intensity = 0; return; }
+      pl.position.set(o.l.x, o.l.y, o.l.z); pl.color.setHex(o.l.color);
+      const f = reduceMotion ? 0 : Math.sin(clock * 8.3 + o.l.ph) * 0.15 + Math.sin(clock * 19.1 + o.l.ph * 2) * 0.1;
+      pl.intensity = o.l.power * (1 + f) * Math.min(1, (11 - o.d) / 3);
+    });
+    for (const f of flames) f.s.scale.setScalar(f.base * (1 + (reduceMotion ? 0 : Math.sin(clock * 11 + f.ph) * 0.08)));
+  }
+
+  const THEME_OF = (fl) => STAGE_OF[fl[0]] || 'abbey';
+  // 소품 고르기: 칸·벽 방향마다 늘 같은 값 (층을 다시 들어와도 같은 자리에)
+  const hh = (x, y, k) => hash2(x * 131 + k * 7919, y * 97 + k * 104729);
+  function decorate(fl) {
+    const F = D.floors[fl], theme = THEME_OF(fl), map = F.map, list = [];
+    const isWall = (x, y) => kindOf(fl, x, y) === 'wall';
+    const wallsOf = (x, y) => [0, 1, 2, 3].filter((d) => isWall(x + DX[d], y + DY[d]));
+    const plain = (x, y) => cellOf(fl, x, y) === '.';
+    const near = (arr, x, y, r) => arr.some((o) => Math.hypot(o.x - x, o.y - y) < r);
+    const inw = (d) => [-DX[d], -DY[d]];   // 벽에서 칸 안쪽
+    // 벽 d 앞, 벽을 따라 a 만큼 옆, 벽에서 off 만큼 떨어진 곳 (세계 좌표)
+    const atWall = (x, y, d, off, a) => {
+      const [ix, iz] = inw(d), sx = -iz, sz = ix;
+      return [wx(x) + DX[d] * CELL / 2 + ix * off + sx * (a || 0), wz(y) + DY[d] * CELL / 2 + iz * off + sz * (a || 0)];
+    };
+    const put = (n, X, Y, Z, ry, s, extra) => list.push(Object.assign({ n, x: X, y: Y, z: Z, ry, s }, extra));
+    // 벽에 거는 소품 (모델 +z 가 벽 밖을 보고, 뒷면이 벽에 닿게)
+    const hang = (n, x, y, d, Y, s, a) => {
+      const b = kitBox(n), [X, Z] = atWall(x, y, d, -b.min[2] * s + 0.01, a);
+      put(n, X, Y, Z, FACE_RY[d], s);
+    };
+    // 바닥 소품: 벽 d 앞에 (반지름 r 만큼 띄워), 돌림 ry
+    const floorAt = (n, x, y, d, s, a, ry, off) => {
+      const b = kitBox(n), r = Math.max(b.max[2] - b.min[2], b.max[0] - b.min[0]) * s / 2;
+      const [X, Z] = atWall(x, y, d, (off != null ? off : r + 0.04), a);
+      put(n, X, -b.min[1] * s, Z, ry != null ? ry : FACE_RY[d], s);
+    };
+    const torches = [], banners = [], beams = [];
+    const torch = (x, y, d) => {
+      const s = 0.62, b = kitBox('torch_mounted'), tip = kitTip('torch_mounted');
+      hang('torch_mounted', x, y, d, 1.45, s);
+      const [X, Z] = atWall(x, y, d, (tip[2] - b.min[2]) * s + 0.01, -tip[0] * s);
+      addFlame(X, 1.45 + tip[1] * s + 0.08, Z, 'warm', 3.2, 0.5);
+      torches.push({ x, y });
+    };
+    const PICK = {
+      abbey: { clutter: [['candle_melted', 0.5], ['bottle_A_brown', 0.42], ['rubble_half', 0.13], ['sword_shield_broken', 0.34], ['box_small', 0.42], ['barrel_small', 0.55], ['chair', 0.5]],
+        end: [[['barrel_large', 0.42, 0], ['barrel_small', 0.5, 0.65]], [['crates_stacked', 0.42, 0]], [['table_medium_broken', 0.5, 0], ['candle_melted', 0.5, -0.6]], [['rubble_half', 0.2, -0.4], ['sword_shield_broken', 0.55, 0.45]], [['keg', 0.38, 0], ['box_small', 0.45, 0.6]]],
+        corner: [['barrel_small', 0.55], ['box_small', 0.42], ['candle_triple', 0.6], ['bottle_A_brown', 0.42]] },
+      crypt: { clutter: [['skull', 0.28], ['bone_A', 0.45], ['bone_C', 0.4], ['ribcage', 0.42], ['candle_melted', 0.5], ['candle_lit', 0.45], ['skull_candle', 0.3]],
+        end: [[['coffin', 0.42, 0, true]], [['coffin_decorated', 0.42, 0, true], ['candle_triple', 0.55, 0.8]], [['plaque_candles', 0.42, 0]], [['grave_A_destroyed', 0.48, 0], ['skull', 0.28, 0.6]], [['skull', 0.3, -0.25], ['skull', 0.26, 0.2], ['bone_B', 0.45, 0.55], ['candle_lit', 0.45, -0.65]]],
+        corner: [['candle_triple', 0.6], ['skull', 0.28], ['bone_A', 0.45], ['skull_candle', 0.32]] },
+      mine: { clutter: [['box_small', 0.4], ['barrel_small', 0.55], ['rubble_half', 0.12], ['@rock', 0.5], ['@rock', 0.35], ['lantern_standing', 0.55]],
+        end: [[['crates_stacked', 0.42, 0]], [['box_stacked', 0.3, 0]], [['barrel_large', 0.42, -0.3], ['box_small', 0.45, 0.55]], [['rubble_large', 0.17, 0], ['@rock', 0.5, 0.7]], [['keg', 0.38, 0], ['lantern_standing', 0.55, 0.65]]],
+        corner: [['barrel_small', 0.55], ['box_small', 0.42], ['@rock', 0.45], ['lantern_standing', 0.55]] }
+    }[theme];
+    const lantern = (n, x, y, d, a) => {
+      // 서 있는 등불: 불빛도 함께
+      const [X, Z] = atWall(x, y, d, 0.25, a);
+      put('lantern_standing', X, 0, Z, FACE_RY[d], 0.55);
+      addFlame(X, 0.32, Z, 'warm', 2.2, 0.35);
+    };
+    const floorItem = (n, s, x, y, d, a) => {
+      if (n === 'lantern_standing') return lantern(n, x, y, d, a);
+      if (n[0] === '@') { const [X, Z] = atWall(x, y, d, 0.3 * s / 0.5 + 0.05, a); put(n, X, 0.12 * s, Z, hh(x, y, 3) * 6, s, { sx: s, sy: s * (0.7 + hh(x, y, 4) * 0.5), sz: s }); return; }
+      const lie = n.startsWith('bone');   // 뼈는 바닥에 눕힌다
+      floorAt(n, x, y, d, s, a, FACE_RY[d] + (lie ? hh(x, y, 5) * 3 : (hh(x, y, 6) - 0.5) * 0.8));
+      if (n === 'candle_lit' || n === 'candle_triple' || n === 'skull_candle') {
+        const b = kitBox(n), [X, Z] = atWall(x, y, d, Math.max(b.max[2] - b.min[2], b.max[0] - b.min[0]) * s / 2 + 0.04, a);
+        addFlame(X, b.max[1] * s + 0.04, Z, 'warm', 1.6, 0.28);
+      }
+    };
+
+    for (let y = 0; y < map.length; y++) for (let x = 0; x < map[y].length; x++) {
+      if (isWall(x, y)) continue;
+      const ch = cellOf(fl, x, y);
+      if (!plain(x, y)) { if (F.events[ch]) eventDeco(fl, ch, x, y, { put, hang, floorAt, floorItem, atWall, wallsOf, addFlame, list }); continue; }
+      const ws = wallsOf(x, y);
+      // 벽 횃불 (광산은 버팀목 등불이 많아 드물게)
+      const rate = { abbey: 0.36, crypt: 0.2, mine: 0.1 }[theme];
+      for (const d of ws) if (hh(x, y, 10 + d) < rate && !near(torches, x, y, 2.9)) { torch(x, y, d); break; }
+      // 수도원: 붉은 깃발, 서고(b3)에는 책장. 묘지: 벽에 해골 촛불
+      if (theme === 'abbey') {
+        const shelves = fl === 'b3';
+        for (const d of ws) {
+          if (torches.some((t) => t.x === x && t.y === y)) break;
+          if (shelves && hh(x, y, 20 + d) < 0.55) { const [X, Z] = atWall(x, y, d, 0.15); put('@books', X, 1.05, Z, FACE_RY[d], 1); continue; }
+          if (!shelves && hh(x, y, 20 + d) < 0.12 && !near(banners, x, y, 3.5)) { hang(hh(x, y, 25) < 0.5 ? 'banner_thin_red' : 'banner_patternA_red', x, y, d, -0.05, 0.62); banners.push({ x, y }); break; }
+        }
+      }
+      // 광산: 곧은 갱도마다 나무 버팀목 (두 기둥 + 들보), 몇 개에는 등불
+      if (theme === 'mine' && ws.length === 2 && (ws[0] + 2) % 4 === ws[1] && hh(x, y, 30) < 0.45 && !near(beams, x, y, 1.9)) {
+        const d = ws[0], alongX = d === 1 || d === 3;   // 벽이 동서에 있으면 들보는 동서로 걸친다
+        for (const w of ws) { const [X, Z] = atWall(x, y, w, 0.1); put('@post', X, WALL_H / 2, Z, 0, 1); }
+        put('@beam', wx(x), WALL_H - 0.14, wz(y), alongX ? 0 : Math.PI / 2, 1);
+        for (const w of ws) { const [X, Z] = atWall(x, y, w, 0.3); put('@brace', X, WALL_H - 0.42, Z, alongX ? 0 : Math.PI / 2, 1, { rz: (w === 1 || w === 0 ? 1 : -1) * 0.7 * (alongX ? 1 : 0), rx: (w === 2 || w === 0 ? -1 : 1) * 0.7 * (alongX ? 0 : 1) }); }
+        beams.push({ x, y });
+        if (hh(x, y, 31) < 0.5 && !near(torches, x, y, 2.5)) {
+          const [X, Z] = atWall(x, y, ws[0], 0.55);
+          put('lantern_hanging', X, WALL_H - 0.25, Z, 0, 0.42);
+          addFlame(X, WALL_H - 0.25 - 0.42, Z, 'warm', 3, 0.42);
+          torches.push({ x, y });
+        }
+      }
+      // 별빛 굴(m2)·갱도: 벽에 박힌 푸른 수정
+      if (theme === 'mine' && ws.length) {
+        const cr = fl === 'm2' ? 0.4 : 0.06;
+        if (hh(x, y, 40) < cr) {
+          const d = ws[Math.floor(hh(x, y, 41) * ws.length)], a = (hh(x, y, 42) - 0.5) * 1.1;
+          for (let i = 0; i < 4; i++) {
+            const k = 0.6 + hh(x + i, y, 43) * 0.9, [X, Z] = atWall(x, y, d, 0.1 + hh(x, y + i, 44) * 0.2, a + (i - 1.5) * 0.14);
+            put('@crystal', X, 0.25 * k, Z, hh(x, i, 45) * 6, k, { rx: (hh(i, y, 46) - 0.5) * 0.9, rz: (hh(i, x, 47) - 0.5) * 0.9 });
+          }
+          const [X, Z] = atWall(x, y, d, 0.35, a);
+          addFlame(X, 0.45, Z, 'blue', 2.2, 0.55);
+        }
+      }
+      // 막다른 곳: 테마 소품 무더기 / 모퉁이: 작은 소품 / 그 밖의 통로: 가끔 자잘한 것
+      const pick = (arr, k) => arr[Math.floor(hh(x, y, k) * arr.length)];
+      if (ws.length === 3) {
+        const back = ws.find((d) => ws.includes((d + 1) % 4) && ws.includes((d + 3) % 4));
+        for (const [n, s, a, long] of pick(PICK.end, 50)) {
+          if (n[0] === '@' || n === 'lantern_standing') { floorItem(n, s, x, y, back, a); continue; }
+          if (long) floorAt(n, x, y, back, s, a, FACE_RY[back] + Math.PI / 2, kitBox(n).max[0] * s + 0.06);   // 관은 벽을 따라 길게
+          else floorAt(n, x, y, back, s, a);
+        }
+        if (theme === 'crypt' || hh(x, y, 51) < 0.4) { /* 막다른 곳의 불빛 */
+          if (!torches.some((t) => t.x === x && t.y === y)) { const [X, Z] = atWall(x, y, back, 0.5, 0.75); put('candle_triple', X, 0, Z, 0, 0.55); addFlame(X, 0.5, Z, 'warm', 1.8, 0.3); }
+        }
+      } else if (ws.length === 2 && (ws[0] + 2) % 4 !== ws[1]) {
+        if (hh(x, y, 60) < 0.4) {
+          const [n, s] = pick(PICK.corner, 61), d = ws[hh(x, y, 62) < 0.5 ? 0 : 1], o = ws[0] === d ? ws[1] : ws[0];
+          floorItem(n, s, x, y, d, (DX[o] * (-DY[d]) + DY[o] * DX[d]) > 0 ? -0.55 : 0.55);   // 두 벽이 만나는 구석 쪽으로
+        }
+      } else if (ws.length && hh(x, y, 70) < (theme === 'crypt' ? 0.22 : 0.13)) {
+        const [n, s] = pick(PICK.clutter, 71), d = ws[Math.floor(hh(x, y, 72) * ws.length)];
+        floorItem(n, s, x, y, d, (hh(x, y, 73) - 0.5) * 1.0);
+      }
+    }
+    buildDeco(list);
+    if (!lampPool) {
+      lampPool = [];
+      for (let i = 0; i < LAMP_N; i++) { const l = new THREE.PointLight(0xff9a50, 0, 6, 1.6); scene.add(l); lampPool.push(l); }
+    }
+  }
+  // 사건 칸 둘레 (사건 소품은 그대로 두고 어울리는 것을 더한다)
+  function eventDeco(fl, ch, x, y, T) {
+    const ws = T.wallsOf(x, y), d = ws.length ? ws[0] : 0;
+    const id = fl + ':' + ch;
+    if (id === 'b4:f') {   // 울리는 바닥: 머리 위에 큰 종
+      const g = new THREE.Group(), bronze = new THREE.MeshStandardMaterial({ color: 0x8a6a3a, roughness: 0.4, metalness: 0.7 });
+      const pts = [[0.02, 0], [0.42, 0], [0.38, 0.06], [0.3, 0.25], [0.24, 0.5], [0.2, 0.62], [0.06, 0.68]].map(([r, h]) => new THREE.Vector2(r, h));
+      const bell = new THREE.Mesh(new THREE.LatheGeometry(pts, 20), bronze); bell.material.side = THREE.DoubleSide; bell.castShadow = true;
+      bell.position.y = WALL_H - 0.85; g.add(bell);
+      addMesh(g, new THREE.CylinderGeometry(0.02, 0.02, 0.2, 6), M.iron, 0, WALL_H - 0.1, 0);
+      g.position.set(wx(x), 0, wz(y)); level.add(g);
+      props.push({ key: key(x, y), ev: { prop: {} }, group: g, glow: null, anim: (t) => { g.rotation.z = Math.sin(t * 1.3) * 0.04; } });
+    } else if (id === 'b5:g') {   // 잿빛 용의 자리: 금화와 뼈
+      for (const [w, a] of [[d, -0.5], [d, 0.5], [ws[1] != null ? ws[1] : d, 0]]) T.floorAt('coin_stack_small', x, y, w, 0.42, a);
+      T.floorItem('skull', 0.3, x, y, ws[1] != null ? ws[1] : d, -0.6); T.floorItem('bone_C', 0.45, x, y, d, 0.1);
+    } else if (id === 'm2:g') {   // 돌 골렘: 무너진 바위
+      T.floorAt('rubble_half', x, y, d, 0.15, -0.3); T.floorItem('@rock', 0.55, x, y, ws[1] != null ? ws[1] : d, 0.5);
+    } else if (id === 'c2:g') {   // 타락한 묘지기: 해골 촛불
+      for (const a of [-0.6, 0.6]) T.floorItem('skull_candle', 0.32, x, y, d, a);
+    } else if (id === 'c1:f') {   // 무너진 무덤
+      T.floorAt('grave_A_destroyed', x, y, d, 0.45, 0.2); T.floorItem('bone_A', 0.45, x, y, d, -0.6);
+    } else if (id === 'm1:f') {   // 무너지는 천장
+      T.floorAt('rubble_half', x, y, d, 0.13, 0.3); T.floorItem('@rock', 0.4, x, y, ws[1] != null ? ws[1] : d, -0.5);
+    }
+  }
+  // 소품이 있는 사건 칸: 3D 모델로 바꾸거나 곁들인다. 바꿔 놓았으면 true
+  function kitEvent(p, x, y, cx, cz) {
+    const fl = S.floor, ch = cellOf(fl, x, y), type = p.ev.prop.type, g = p.group, theme = THEME_OF(fl);
+    const ws = [0, 1, 2, 3].filter((d) => kindOf(fl, x + DX[d], y + DY[d]) === 'wall');
+    const back = ws.find((d) => ws.includes((d + 1) % 4) && ws.includes((d + 3) % 4));
+    const d = back != null ? back : ws.length ? ws[0] : 0;
+    const [ix, iz] = [-DX[d], -DY[d]], sx = -iz, sz = ix;
+    // 칸 가운데 기준, 벽 d 에서 안쪽으로 off, 옆으로 a
+    const at = (off, a) => [DX[d] * CELL / 2 + ix * off + sx * a, DY[d] * CELL / 2 + iz * off + sz * a];
+    // 사건이 끝나도 남는 것(책상·궤짝·촛불)은 keep 에, 사라지는 것은 g 에
+    const keep = new THREE.Group(); keep.position.copy(g.position); level.add(keep);
+    const flame = (X, Y, Z, power, size) => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: M.glowWarm, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      s.position.set(X, Y, Z); s.scale.setScalar(size); keep.add(s);
+      flames.push({ s, ph: flames.length * 2.3, base: size });
+      lamps.push({ x: cx + X, y: Y, z: cz + Z, color: 0xff9a50, power, ph: flames.length });
+    };
+    const candle = (off, a) => { const [X, Z] = at(off, a); kitMesh(keep, 'candle_triple', X, 0, Z, 0, 0.55); flame(X, 0.5, Z, 1.8, 0.3); };
+    if (type === 'bones' && (fl === 'b2' || theme === 'crypt')) {
+      // 석관 / 열린 관: 벽을 따라 길게 눕힌 관, 그 앞에 해골과 뼈, 촛불
+      const n = theme === 'crypt' ? 'coffin_decorated' : 'coffin', s = 0.45, b = KIT3[n];
+      const [X, Z] = at(b.max[0] * s + 0.08, 0);
+      kitMesh(g, n, X, 0, Z, FACE_RY[d] + Math.PI / 2, s);
+      const [sx_, sz_] = at(b.max[0] * s * 2 + 0.3, -0.35);
+      kitMesh(g, 'skull', sx_, -KIT3.skull.min[1] * 0.26, sz_, FACE_RY[d] + 0.4, 0.26);
+      const [bx, bz] = at(b.max[0] * s * 2 + 0.35, 0.3);
+      kitMesh(g, 'bone_A', bx, 0.06, bz, 1.2, 0.42);
+      candle(0.3, 0.85);
+      p.glow = glowSprite(g, 0.75, M.glowWarm, 0.35);
+      const [gx, gz] = at(b.max[0] * s, 0); p.glow.position.x = gx; p.glow.position.z = gz;
+      return true;
+    }
+    if (type === 'bones' && fl === 'b1') {   // 탐험대장: 곁에 부서진 칼과 방패
+      const [X, Z] = at(0.15, 0.75); kitMesh(g, 'sword_shield_broken', X, 0.28, Z, FACE_RY[d], 0.34);
+      candle(0.3, -0.8);
+    }
+    if (type === 'bones' && theme === 'mine') {   // 광부장: 곁에 등불과 상자
+      const [X, Z] = at(0.3, 0.75); kitMesh(keep, 'lantern_standing', X, 0, Z, 0, 0.55); flame(X, 0.32, Z, 2.2, 0.35);
+      const [bx, bz] = at(0.3, -0.75); kitMesh(keep, 'box_small', bx, 0, bz, 0.3, 0.42);
+    }
+    if (type === 'backpack' && fl === 'b3') {   // 사서 수도사의 책상
+      const [X, Z] = at(0.4, -0.2); kitMesh(keep, 'table_small_decorated_A', X, 0, Z, FACE_RY[d], 0.62);
+      const [cx2, cz2] = at(0.3, 0.6); kitMesh(keep, 'chair', cx2, 0, cz2, FACE_RY[d] + 2.6, 0.55);
+    }
+    if (type === 'backpack' && theme === 'crypt') {   // 문지기의 열쇠: 작은 궤짝 위의 열쇠
+      const [X, Z] = at(0.32, 0), s = 0.5, top = KIT3.trunk_medium_A.max[1] * s;
+      kitMesh(keep, 'trunk_medium_A', X, 0, Z, FACE_RY[d], s);
+      const k = kitMesh(g, 'key', X - 0.1, top + 0.02, Z, 0.5, 0.45);
+      if (k) k.rotation.x = -Math.PI / 2;
+      p.glow = glowSprite(g, top + 0.15, M.glowWarm, 0.45); p.glow.position.x = X; p.glow.position.z = Z;
+      return true;
+    }
+    if (type === 'altar') {   // 검은 제단: 양옆 기둥과 촛불
+      for (const a of [-1, 1]) {
+        kitMesh(g, 'column', a * 0.82, 0, -0.55 * (ws.includes(0) ? 1 : 0), 0, 0.7);
+        const c = kitMesh(g, 'candle_triple', a * 0.55, 0.95, 0.1, a, 0.4);
+        if (c) flame(a * 0.55, 1.35, 0.1, 1.5, 0.25);
+      }
+    }
+    if (type === 'fountain' && theme === 'crypt') candle(0.25, 0.8);
+    if (type === 'runes' && fl === 'm2') {   // 별빛 광맥: 벽에서 솟은 큰 수정 무리
+      const mat = procPart('crystal')[0];
+      for (let i = 0; i < 9; i++) {
+        const [X, Z] = at(0.12 + hh(x, i, 1) * 0.35, (i - 4) * 0.16), k = 0.9 + hh(i, y, 2) * 1.4;
+        const m = new THREE.Mesh(mat.geo, mat.mat); m.position.set(X, 0.25 * k, Z); m.scale.setScalar(k);
+        m.rotation.set((hh(i, 3, x) - 0.5) * 0.8, i, (hh(i, 4, y) - 0.5) * 0.8); m.castShadow = true; g.add(m);
+      }
+      const [X, Z] = at(0.4, 0);
+      lamps.push({ x: cx + X, y: 0.8, z: cz + Z, color: 0x5aa8ff, power: 4, ph: 1 });
+    }
+    return false;
   }
 
   function snapCamera() {
@@ -1466,7 +1855,8 @@
       requestAnimationFrame(frame);
       return;
     }
-    if (builtFloor !== S.floor) { buildLevel(); snapCamera(); }
+    wantKit();
+    if (builtFloor !== S.floor) { buildLevel(); snapCamera(); } else if (builtKit !== kitOn()) buildLevel();
 
     // 격자 위치를 향해 부드럽게 이동·회전
     const k = reduceMotion ? 1 : 1 - Math.exp(-dt * 11);
@@ -1506,6 +1896,7 @@
     for (const p of props) if (p.anim && p.group.visible) p.anim(clock);
     animateFoes(dt);
     for (const p of props) if (p.glow && p.glow.visible) p.glow.material.opacity = 0.7 + Math.sin(clock * 3 + p.group.position.x) * 0.3;
+    if (lampPool) lightLamps();
     // 3D로 보기를 켰으면 던전 전투도 3D 전투 무대(world3d.js)에서. 1인칭 화면은 그동안 그리지 않는다
     const b3 = battleIn3D();
     view.hidden = b3; w3dCv.hidden = !b3; $('dir').hidden = b3;
@@ -2326,9 +2717,11 @@
     try { localStorage.setItem(W3D_KEY, on ? '1' : '0'); } catch (e) { /* 저장소 없음 */ }
     update3DButton();
     if (on && window.World3D && !World3D.ready) load3D(false);
-    else log(on ? (World3D.wants(S.area) ? '3D로 본다.' : '3D로 보기를 켰다. 이곳은 아직 2D로 보인다.') : '2D로 본다.', 'hint');
+    else log(on ? msg3D() : '2D로 본다.', 'hint');
     draw();
   }
+  // 던전은 원래 3D 1인칭이라, 3D로 보기를 켜면 소품(횃불·통·관·버팀목…)이 더 놓인다
+  const msg3D = () => (!inWorld() ? '3D로 본다. 던전 곳곳에 소품이 놓인다.' : World3D.wants(S.area) ? '3D로 본다.' : '3D로 보기를 켰다. 이곳은 아직 2D로 보인다.');
   function load3D(quiet) {
     if (!window.World3D) return;
     const box = $('w3dLoad'), bar = box.querySelector('i');
@@ -2336,7 +2729,7 @@
     World3D.load((p) => { bar.style.width = Math.round(p * 100) + '%'; })
       .then(() => {
         box.hidden = true;
-        if (!quiet && use3D) log(World3D.wants(S.area) ? '3D로 본다.' : '3D로 보기를 켰다. 이곳은 아직 2D로 보인다.', 'hint');
+        if (!quiet && use3D) log(msg3D(), 'hint');
         draw();
       })
       .catch(() => { box.hidden = true; use3D = false; update3DButton(); log('3D 화면을 불러오지 못해 2D로 본다.', 'warn'); });
@@ -2345,7 +2738,7 @@
     const b = $('btn3d');
     b.setAttribute('aria-pressed', String(use3D));
     b.title = use3D ? '2D로 보기 (V)' : '3D로 보기 (V)';
-    b.hidden = !S || !inWorld();
+    b.hidden = !S || (!inWorld() && !!S.battle);
   }
   $('btn3d').addEventListener('click', () => set3D(!use3D));
 
@@ -2744,7 +3137,7 @@
       if (n >= 1 && n <= btns.length) { btns[n - 1].click(); e.preventDefault(); }
       return;
     }
-    if ((e.key === 'v' || e.key === 'V') && inWorld()) { e.preventDefault(); set3D(!use3D); return; } // 3D로 보기 켜고 끄기
+    if (e.key === 'v' || e.key === 'V') { e.preventDefault(); set3D(!use3D); return; } // 3D로 보기 켜고 끄기
     const map = {
       ArrowUp: 'fwd', w: 'fwd', W: 'fwd', ArrowDown: 'back', s: 'back', S: 'back',
       ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right',

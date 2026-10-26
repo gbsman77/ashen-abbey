@@ -57,7 +57,8 @@
     get ready() { return W3.state === 'ready'; },
     load, frame, reset: () => { trail.length = 0; },
     act: (i, kind, arg) => battleAct(i, kind, arg), fx: (kind, arg) => battleFx(kind, arg),
-    info: () => renderer && { ...renderer.info.render, tex: renderer.info.memory.textures, geo: renderer.info.memory.geometries }
+    info: () => renderer && { ...renderer.info.render, tex: renderer.info.memory.textures, geo: renderer.info.memory.geometries },
+    crawlKit: () => crawlKit()
   };
 
   // ---------- 불러오기 ----------
@@ -94,6 +95,49 @@
       W3.state = 'ready';
     })().catch((err) => { W3.state = 'failed'; loading = null; throw err; });
     return loading;
+  }
+
+  // 1인칭 던전 소품 (models3d/crawl.json). engine.js 는 따로 불러온 three.min.js 로 그리므로
+  // 모듈판 THREE 물체를 그대로 넘기지 않고, 소품마다 재질별로 합친 꼭짓점 배열과 그림만 넘긴다
+  let crawl = null;
+  function crawlKit() {
+    if (crawl) return crawl;
+    crawl = (async () => {
+      if (!loading) throw new Error('3d');
+      await loading;
+      const r = await fetch('models3d/crawl.json');
+      if (!r.ok) throw new Error('crawl');
+      const g = await parse(new GLTFLoader(), (await r.json()).crawl);
+      const out = {}, v = new THREE.Vector3(), nm = new THREE.Matrix3();
+      for (const s of g.scenes) {
+        s.updateMatrixWorld(true);
+        const byMat = new Map(), box = new THREE.Box3();
+        s.traverse((m) => {
+          if (!m.isMesh) return;
+          const src = m.material, geo = m.geometry, P = geo.attributes.position, N = geo.attributes.normal, U = geo.attributes.uv;
+          let part = byMat.get(src);
+          if (!part) {
+            part = { mat: { key: src.name || src.uuid, color: src.color.getHex(), image: src.map ? src.map.image : null, rough: src.roughness, metal: src.metalness,
+              emissive: src.emissive ? src.emissive.getHex() : 0 }, pos: [], nor: [], uv: [], idx: [] };
+            byMat.set(src, part);
+          }
+          nm.getNormalMatrix(m.matrixWorld);
+          const base = part.pos.length / 3;
+          for (let i = 0; i < P.count; i++) {
+            v.fromBufferAttribute(P, i).applyMatrix4(m.matrixWorld); part.pos.push(v.x, v.y, v.z); box.expandByPoint(v);
+            if (N) { v.fromBufferAttribute(N, i).applyMatrix3(nm).normalize(); part.nor.push(v.x, v.y, v.z); }
+            if (U) part.uv.push(U.getX(i), U.getY(i));
+          }
+          if (geo.index) for (let i = 0; i < geo.index.count; i++) part.idx.push(base + geo.index.getX(i));
+          else for (let i = 0; i < P.count; i++) part.idx.push(base + i);
+        });
+        out[s.name] = { min: box.min.toArray(), max: box.max.toArray(), parts: [...byMat.values()].map((p) => ({
+          mat: p.mat, pos: new Float32Array(p.pos), nor: p.nor.length ? new Float32Array(p.nor) : null, uv: p.uv.length ? new Float32Array(p.uv) : null,
+          idx: p.pos.length / 3 > 65535 ? new Uint32Array(p.idx) : new Uint16Array(p.idx) })) };
+      }
+      return out;
+    })().catch((e) => { crawl = null; throw e; });
+    return crawl;
   }
 
   function initRenderer() {
