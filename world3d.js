@@ -26,6 +26,12 @@
   const HERO_H = 1.1;             // 사람 키 (칸 단위, 한 칸 = 1)
   const MODEL_H = 2.3;            // 파티 모델 원래 키 (KayKit 뼈대와 같은 크기). 무기까지 재면 사람마다 달라져서 고정값으로 줄인다
   const GAP = 0.85;               // 줄 선 사람 사이 거리
+  // 전투 동작 (KayKit 동작 이름). 무기에 따라 휘두르는 모양이 다르다
+  const BATTLE_ANIM = {
+    slash: '1H_Melee_Attack_Chop', swing: '2H_Melee_Attack_Chop', cast: 'Spellcast_Shoot', raise: 'Spellcast_Raise',
+    guard: 'Block', hit: 'Hit_A', down: 'Death_A', cheer: 'Cheer'
+  };
+  const ATTACK_ANIM = ['slash', 'swing', 'swing'];   // 파티 순서대로 (전사 한손검, 사제·마법사 지팡이)
 
   const D = window.DUNGEON;
   let THREE = null, GLTFLoader = null, mergeGeometries = null, cloneSkinned = null;
@@ -40,6 +46,7 @@
     wants: (id) => !!AREAS[id],
     get ready() { return W3.state === 'ready'; },
     load, frame, reset: () => { trail.length = 0; },
+    act: (i, kind, arg) => battleAct(i, kind, arg), fx: (kind, arg) => battleFx(kind, arg),
     info: () => renderer && { ...renderer.info.render, tex: renderer.info.memory.textures, geo: renderer.info.memory.geometries }
   };
 
@@ -138,6 +145,11 @@
     const mixer = new THREE.AnimationMixer(root);
     const clip = (n) => THREE.AnimationClip.findByName(gltf.animations, n) || gltf.animations[0];
     const acts = { idle: mixer.clipAction(clip('Idle')), walk: mixer.clipAction(clip('Walking_A')), run: mixer.clipAction(clip('Running_A')) };
+    // 전투 동작은 처음 쓸 때 만든다 (BATTLE_ANIM)
+    for (const [k, n] of Object.entries(BATTLE_ANIM)) {
+      const c = THREE.AnimationClip.findByName(gltf.animations, n);
+      if (c) { acts[k] = mixer.clipAction(c); if (k !== 'cheer') { acts[k].setLoop(THREE.LoopOnce, 1); acts[k].clampWhenFinished = true; } }
+    }
     acts.idle.play();
     return { root: wrap, mixer, acts, cur: 'idle', pos: new THREE.Vector3(), yaw: 0, still: 0 };
   }
@@ -148,8 +160,9 @@
     m.position.y = HERO_H / 2; m.castShadow = true; g.add(m);
     return { root: g, mixer: null, acts: null, cur: 'idle', pos: new THREE.Vector3(), yaw: 0, still: 0 };
   }
-  function setAnim(ch, name) {
-    if (!ch.acts || ch.cur === name) return;
+  function setAnim(ch, name, again) {
+    if (!ch.acts || !ch.acts[name]) return;
+    if (ch.cur === name) { if (again) ch.acts[name].reset().play(); return; }
     const from = ch.acts[ch.cur], to = ch.acts[name];
     to.reset().play();
     from.crossFadeTo(to, 0.18, false);
@@ -1435,6 +1448,241 @@
   }
   function iconSprite(scene, icon, x, z) { const g = billboard(icon, 1.1); g.position.set(x, 0, z); scene.add(g); }
 
+  // ---------- 전투 무대 ----------
+  // 3D로 보기에서 싸우면 따로 세운 들판 무대로 옮겨 싸운다. 파티는 오른쪽에 3D 모델로, 적은 왼쪽에 지금 쓰는 몬스터 그림 판으로 선다
+  // 전투 규칙·명령 창은 engine.js 그대로. engine 이 매 장면 v.battle(적 연출 상태)을 넘기고, 행동마다 W3.act / W3.fx 를 부른다
+  const PARTY_SPOT = [[1.05, -0.1], [2.0, -0.95], [2.35, 0.75]];   // 파티 순서대로 [x, z] (x 오른쪽, z 카메라 쪽). 전사가 앞에 선다
+  const ONCE = new Set(['slash', 'swing', 'cast', 'raise', 'guard', 'hit']);
+  let stage = null, bt = null;   // bt = 지금 전투 { ref, foes, fx, steps, saved }
+  const imgTex = new WeakMap();
+  let dotTex = null;
+
+  function buildStage() {
+    const scene = new THREE.Scene();
+    const SKY = 0xa8cfe0;
+    scene.background = new THREE.Color(SKY);
+    scene.fog = new THREE.Fog(SKY, 18, 48);
+    scene.add(hemi.clone());
+    const light = sun.clone(); light.shadow = sun.shadow.clone(); light.castShadow = true;
+    Object.assign(light.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8 });
+    light.position.set(5, 14, 9); light.target.position.set(0, 0, 0);
+    scene.add(light, light.target);
+    const R = (i, k) => hash(i * 17 + k * 131, k * 7 + 3);
+    // 땅: 풀밭, 가운데는 밟혀 흙이 드러난 자리
+    const grass = canvasTex(256, (g, s) => {
+      g.fillStyle = '#68a042'; g.fillRect(0, 0, s, s);
+      const cols = ['#52883a', '#7cb04e', '#5c943c', '#88b85a'];
+      for (let i = 0; i < 900; i++) { g.fillStyle = cols[i % 4]; g.globalAlpha = 0.25 + Math.random() * 0.4; g.fillRect(Math.random() * s, Math.random() * s, 2 + Math.random() * 3, 4 + Math.random() * 7); }
+      g.globalAlpha = 1;
+    }, 24);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(96, 96), new THREE.MeshLambertMaterial({ map: grass }));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+    const dirt = canvasTex(256, (g, s) => {
+      const r = g.createRadialGradient(s / 2, s / 2, s * 0.08, s / 2, s / 2, s / 2);
+      r.addColorStop(0, 'rgba(176,142,92,0.85)'); r.addColorStop(0.55, 'rgba(160,128,80,0.6)'); r.addColorStop(1, 'rgba(150,120,76,0)');
+      g.fillStyle = r; g.fillRect(0, 0, s, s);
+      for (let i = 0; i < 260; i++) {
+        const a = Math.random() * Math.PI * 2, d = Math.random() * s * 0.42;
+        g.fillStyle = Math.random() < 0.5 ? 'rgba(120,92,58,0.35)' : 'rgba(200,170,120,0.3)';
+        g.fillRect(s / 2 + Math.cos(a) * d, s / 2 + Math.sin(a) * d, 2 + Math.random() * 4, 2 + Math.random() * 3);
+      }
+    });
+    dirt.wrapS = dirt.wrapT = THREE.ClampToEdgeWrapping;
+    const patch = new THREE.Mesh(new THREE.PlaneGeometry(9, 5.5), new THREE.MeshLambertMaterial({ map: dirt, transparent: true, depthWrite: false }));
+    patch.rotation.x = -Math.PI / 2; patch.position.set(0.1, 0.01, 0); patch.receiveShadow = true; patch.renderOrder = -1; scene.add(patch);
+
+    // 둘레의 숲 (카메라 쪽은 비운다), 그 너머 언덕과 산
+    const forest = { trees_A_large: [], trees_A_medium: [], trees_B_large: [], trees_B_medium: [], tree_single_A: [], tree_single_B: [] }, names = Object.keys(forest);
+    for (let i = 0; i < 90; i++) {
+      const a = R(i, 1) * Math.PI * 2, r = 6.2 + R(i, 2) * 7;
+      const x = Math.cos(a) * r * 1.35, z = Math.sin(a) * r - 1.5;
+      if (z > 1.5 && Math.abs(x) < 9) continue;
+      forest[names[Math.floor(R(i, 3) * names.length)]].push({ x, z, s: 1.8 + R(i, 4) * 0.9, r: R(i, 5) * 6 });
+    }
+    const hills = { hills_A_trees: [], mountain_A_grass_trees: [], mountain_B_grass_trees: [], hill_single_A: [] };
+    Object.keys(hills).forEach((n, k) => { for (let i = 0; i < 4; i++) hills[n].push({ x: -26 + (i * 4 + k) * 3.4 + R(i, k + 9) * 2, z: -19 - R(i, k + 11) * 6, s: 3.5 + R(i, k + 13) * 2.5, r: R(i, k + 15) * 6 }); });
+    const rocks = { rock_single_A: [{ x: -4.4, z: -1.6, s: 2.2, r: 1 }, { x: 4.6, z: 1.6, s: 1.8, r: 2 }], rock_single_C: [{ x: -2.8, z: -3.4, s: 2, r: 0.4 }], rock_single_E: [{ x: 3.8, z: -2.9, s: 2.4, r: 3 }, { x: -5.4, z: 2.2, s: 1.7, r: 5 }] };
+    for (const group of [forest, hills, rocks]) for (const [n, list] of Object.entries(group)) scatter(scene, n, list);
+    // 풀 포기·덤불·들꽃
+    const tufts = [], bushes = [], flowers = [];
+    for (let i = 0; i < 520; i++) {
+      const x = (R(i, 20) - 0.5) * 18, z = (R(i, 21) - 0.5) * 12 - 1;
+      if (Math.abs(x) < 3.2 && Math.abs(z) < 1.9) continue;
+      tufts.push({ x, y: 0.06, z, sy: 0.7 + R(i, 22) * 0.7, r: R(i, 23) * 6, color: R(i, 24) < 0.5 ? 0x4f8a34 : 0x6aa244 });
+      if (i % 9 === 0) flowers.push({ x: x + 0.2, y: 0.09, z, sx: 0.05, sy: 0.05, sz: 0.05, color: [0xf2e070, 0xf4f0f0, 0xe07aa0, 0x9a8af0][i % 4] });
+    }
+    for (let i = 0; i < 14; i++) {
+      const a = R(i, 30) * Math.PI * 2, r = 4.4 + R(i, 31) * 1.6, x = Math.cos(a) * r * 1.3, z = Math.sin(a) * r * 0.8 - 1;
+      if (z > 1.2) continue;
+      bushes.push({ x, y: 0.2, z, sx: 0.36 + R(i, 32) * 0.2, sy: 0.3 + R(i, 33) * 0.1, sz: 0.36, r: R(i, 34) * 6, color: R(i, 35) < 0.5 ? 0x3f7a32 : 0x4c8a38 });
+    }
+    instances(scene, new THREE.ConeGeometry(0.035, 0.14, 3), new THREE.MeshLambertMaterial({}), tufts, false);
+    instances(scene, new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ flatShading: true }), bushes);
+    instances(scene, new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({}), flowers, false);
+    return { scene, sun: light };
+  }
+
+  function foeTex(img) {
+    let t = imgTex.get(img);
+    if (!t) { t = new THREE.CanvasTexture(img); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; imgTex.set(img, t); }
+    return t;
+  }
+  // 적 그림 판: 아래 끝이 땅에 닿게 세우고 발밑에 그림자. 나는 적(fly)은 조금 떠 있다
+  function setupBattle(b) {
+    if (!stage) stage = buildStage();
+    if (bt) clearFoes3D();
+    else bt = { saved: party.map((m) => ({ pos: m.pos.clone(), yaw: m.yaw })), fx: [], steps: party.map(() => null) };
+    bt.ref = b.ref; bt.img = b.img; bt.foes = [];
+    const n = b.foes.length, h = 0.7 * b.scale, w = h * b.aspect, gap = Math.max(1.05, w * 0.9);
+    b.foes.forEach((f, i) => {
+      const g = new THREE.Group();
+      const mat = new THREE.SpriteMaterial({ map: foeTex(b.img), color: b.tint, transparent: true, alphaTest: 0.03, depthWrite: false,
+        blending: b.glow ? THREE.AdditiveBlending : THREE.NormalBlending });
+      const sp = new THREE.Sprite(mat);
+      sp.center.set(0.5, 0); sp.scale.set(w, h, 1);
+      sp.position.y = b.fly ? 0.45 : 0;
+      const sh = new THREE.Mesh(new THREE.CircleGeometry(Math.max(0.22, w * 0.36), 18), materials().shadow);
+      sh.rotation.x = -Math.PI / 2; sh.position.y = 0.015; sh.scale.set(1, 0.55, 1); sh.renderOrder = -1;
+      g.add(sp, sh);
+      const base = new THREE.Vector3(-1.2 - w * 0.25 - (n > 1 && i % 2 ? 0.55 : 0), 0, (i - (n - 1) / 2) * gap);
+      g.position.copy(base);
+      stage.scene.add(g);
+      bt.foes.push({ g, sp, sh, base, h, w, fly: b.fly, tint: new THREE.Color(b.tint), phase: i * 1.7 });
+    });
+    for (const m of party) { stage.scene.add(m.root); m.down = false; }
+    party.forEach((m, i) => { const [x, z] = PARTY_SPOT[i] || [2.5, 0]; m.pos.set(x, 0, z); m.yaw = -Math.PI / 2 + 0.4; setAnim(m, 'idle'); });
+  }
+  function clearFoes3D() {
+    for (const f of bt.foes) { stage.scene.remove(f.g); f.sp.material.dispose(); f.sh.geometry.dispose(); }
+    bt.foes = [];
+  }
+  // 전투가 끝나면 파티를 원래 지역 장면·자리로 돌려놓는다
+  function endBattle3D(S3) {
+    clearFoes3D();
+    for (const p of bt.fx) { stage.scene.remove(p.obj); if (p.light) stage.scene.remove(p.light); p.obj.geometry.dispose(); p.obj.material.dispose(); }
+    party.forEach((m, i) => {
+      const s = bt.saved[i];
+      S3.scene.add(m.root);
+      m.pos.copy(s.pos); m.yaw = s.yaw; m.root.position.copy(m.pos); m.root.rotation.y = m.yaw;
+      setAnim(m, 'idle');
+    });
+    bt = null;
+  }
+
+  // 파티의 행동 (engine 의 partyAct·foeAct 에서): attack(적 번호) · fire · heal · guard · hit
+  function battleAct(i, kind, arg) {
+    const m = party[i];
+    if (!bt || !m) return;
+    if (kind === 'attack') { setAnim(m, ATTACK_ANIM[i] || 'slash', true); bt.steps[i] = { t: 0, foe: arg }; }
+    else if (kind === 'fire') setAnim(m, 'cast', true);
+    else if (kind === 'heal') setAnim(m, 'raise', true);
+    else if (kind === 'guard') setAnim(m, 'guard', true);
+    else if (kind === 'hit') setTimeout(() => { if (bt && !m.down) setAnim(m, 'hit', true); }, 180);
+  }
+  // 효과: fire(살아 있는 적 모두에 불꽃) · breath(파티 모두에 불꽃) · heal(파티원 번호) · spark(맞은 적 번호)
+  function battleFx(kind, arg) {
+    if (!bt) return;
+    const at = [];
+    if (kind === 'fire') for (const f of bt.foes) { if (f.g.visible) at.push(f.g.position.clone().setY(f.h * 0.45)); }
+    if (kind === 'breath') for (const m of party) at.push(m.pos.clone().setY(0.5));
+    if (kind === 'heal' && party[arg]) at.push(party[arg].pos.clone().setY(0.1));
+    if (kind === 'spark' && bt.foes[arg]) at.push(bt.foes[arg].base.clone().setY(bt.foes[arg].h * 0.5 + (bt.foes[arg].fly ? 0.45 : 0)));
+    const C = { fire: [0xff9a30, 0xffd060], breath: [0xff6a20, 0xffb040], heal: [0x9cff9a, 0xfff0a0], spark: [0xffffff, 0xfff0b0] }[kind];
+    const delay = kind === 'spark' ? 0.22 : kind === 'fire' || kind === 'heal' ? 0.35 : 0;
+    for (const p of at) burst(kind, p, C, delay);
+  }
+  function burst(kind, at, C, delay) {
+    if (!dotTex) dotTex = canvasTex(64, (g, s) => { const r = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.4, 'rgba(255,255,255,0.6)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, s, s); });
+    const N = kind === 'spark' ? 14 : kind === 'heal' ? 36 : 56, pos = new Float32Array(N * 3), col = new Float32Array(N * 3), vel = [];
+    const c = new THREE.Color();
+    for (let i = 0; i < N; i++) {
+      const a = Math.random() * Math.PI * 2, u = Math.random();
+      if (kind === 'heal') { pos.set([at.x + Math.cos(a) * 0.35 * u, at.y + Math.random() * 0.4, at.z + Math.sin(a) * 0.35 * u], i * 3); vel.push([0, 0.8 + Math.random() * 0.8, 0]); }
+      else if (kind === 'spark') { pos.set([at.x, at.y, at.z], i * 3); vel.push([Math.cos(a) * 2.2 * u, (Math.random() - 0.3) * 2.4, Math.sin(a) * 2.2 * u]); }
+      else { pos.set([at.x + (Math.random() - 0.5) * 0.4, at.y + (Math.random() - 0.5) * 0.5, at.z + (Math.random() - 0.5) * 0.4], i * 3); vel.push([Math.cos(a) * 0.9 * u, 0.6 + Math.random() * 1.4, Math.sin(a) * 0.9 * u]); }
+      c.set(C[i % 2]); col.set([c.r, c.g, c.b], i * 3);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const mat = new THREE.PointsMaterial({ size: kind === 'spark' ? 0.16 : kind === 'heal' ? 0.3 : 0.45, map: dotTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
+    const obj = new THREE.Points(geo, mat);
+    stage.scene.add(obj);
+    const light = kind === 'spark' ? null : new THREE.PointLight(C[0], 0, 4, 1.5);
+    if (light) { light.position.copy(at).setY(at.y + 0.3); stage.scene.add(light); }
+    bt.fx.push({ obj, vel, light, t: -delay, life: kind === 'spark' ? 0.4 : 0.9, grav: kind === 'spark' ? -6 : kind === 'heal' ? 0 : 0.6 });
+  }
+
+  // 전투 장면 한 번. v.battle = { ref, img, aspect, scale, tint, glow, fly, foes: [{hit, lunge, dying}], down: [파티원 쓰러짐], won }
+  function battleFrame(v, w, h) {
+    const b = v.battle, dt = v.dt;
+    if (!bt || bt.ref !== b.ref || bt.img !== b.img || bt.foes.length !== b.foes.length) setupBattle(b);
+    clockT += dt;
+    // 적: 숨 쉬듯 들썩이고, 덤빌 때는 파티 쪽으로 달려들고, 맞으면 흔들리며 붉게 번쩍, 쓰러지면 가라앉으며 사라진다
+    bt.foes.forEach((f, i) => {
+      const s = b.foes[i] || { hit: 0, lunge: 0, dying: 1 };
+      const t = clockT + f.phase;
+      const p = f.g.position.copy(f.base);
+      if (s.lunge > 0) p.x += Math.sin((1 - s.lunge) * Math.PI) * 1.5;
+      if (s.hit > 0) p.x += Math.sin(clockT * 80) * 0.06 * s.hit - s.hit * 0.1;
+      f.sp.position.y = (f.fly ? 0.45 + Math.sin(t * 2.2) * 0.08 : 0) - s.dying * f.h * 0.25;
+      f.sp.scale.set(f.w * (1 - Math.sin(t * 3) * 0.015), f.h * (1 + Math.sin(t * 3) * 0.02) * (1 - s.dying * 0.3), 1);
+      f.sp.material.opacity = 1 - s.dying;
+      f.sh.visible = s.dying < 0.6;
+      f.sp.material.color.copy(f.tint);
+      if (s.hit > 0 && Math.floor(clockT * 30) % 2) f.sp.material.color.setRGB(1, 0.45, 0.4);
+      f.g.visible = s.dying < 1;
+    });
+    // 파티: 제자리에서 적 쪽을 보고 선다. 공격할 때는 노린 적 쪽으로 몇 걸음 나갔다 돌아온다
+    const fc = bt.foes.length ? bt.foes.reduce((a, f) => a.add(f.base), new THREE.Vector3()).multiplyScalar(1 / bt.foes.length) : new THREE.Vector3(-2, 0, 0);
+    party.forEach((m, i) => {
+      const [sx, sz] = PARTY_SPOT[i] || [2.5, 0];
+      let px = sx, pz = sz;
+      const st = bt.steps[i];
+      if (st) {
+        st.t += dt;
+        const f = bt.foes[st.foe], k = Math.sin(Math.min(1, st.t / 0.75) * Math.PI) * 0.7;
+        if (f) { const dx = f.base.x - sx, dz = f.base.z - sz, L = Math.hypot(dx, dz) || 1; px += dx / L * k * Math.min(1, L - 0.9); pz += dz / L * k * Math.min(1, L - 0.9); }
+        if (st.t >= 0.75) bt.steps[i] = null;
+      }
+      m.pos.set(px, 0, pz);
+      const want = Math.atan2(fc.x - px, fc.z - pz) + 0.25;
+      let d = want - m.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      m.yaw += d * Math.min(1, dt * 10);
+      m.down = !!(b.down && b.down[i]);
+      const base = m.down ? 'down' : b.won ? 'cheer' : 'idle';
+      const a = m.acts && m.acts[m.cur];
+      const busy = ONCE.has(m.cur) && a && a.isRunning() && a.time < a.getClip().duration - 0.02;
+      if (!busy) setAnim(m, m.acts && m.acts[base] ? base : 'idle');
+      m.root.position.copy(m.pos); m.root.rotation.y = m.yaw;
+      if (m.mixer) m.mixer.update(dt);
+    });
+    // 불꽃·빛 알갱이
+    for (let i = bt.fx.length - 1; i >= 0; i--) {
+      const p = bt.fx[i];
+      p.t += dt;
+      if (p.t < 0) continue;
+      const k = p.t / p.life, arr = p.obj.geometry.attributes.position.array;
+      p.vel.forEach((vv, j) => { vv[1] += p.grav * dt; arr[j * 3] += vv[0] * dt; arr[j * 3 + 1] += vv[1] * dt; arr[j * 3 + 2] += vv[2] * dt; });
+      p.obj.geometry.attributes.position.needsUpdate = true;
+      p.obj.material.opacity = k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85;
+      if (p.light) p.light.intensity = 6 * Math.max(0, 1 - k) * Math.min(1, k * 8);
+      if (k >= 1) { stage.scene.remove(p.obj); if (p.light) stage.scene.remove(p.light); p.obj.geometry.dispose(); p.obj.material.dispose(); bt.fx.splice(i, 1); }
+    }
+    // 카메라: 무대 앞쪽 조금 왼쪽 위에서 양쪽이 다 보이게. 천천히 좌우로 흔들린다
+    const aspect = w / h, f2 = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const dist = Math.max(5.4 / (f2 * aspect), 2.6 / f2) + 0.6;
+    const pitch = THREE.MathUtils.degToRad(17), yaw = -0.12 + (v.reduceMotion ? 0 : Math.sin(clockT * 0.25) * 0.05);
+    let shx = 0, shz = 0;
+    if (v.shake) { shx = Math.sin(clockT * 70) * 0.08 * v.shake; shz = Math.cos(clockT * 63) * 0.06 * v.shake; }
+    const tx = 0.45, ty = 0.55, tz = 0.15;
+    camera.position.set(tx + Math.sin(yaw) * Math.cos(pitch) * dist + shx, ty + Math.sin(pitch) * dist, tz + Math.cos(yaw) * Math.cos(pitch) * dist + shz);
+    camera.lookAt(tx + shx, ty, tz + shz);
+    CUT.r.value = 0;
+    renderer.render(stage.scene, camera);
+    return true;
+  }
+
   // ---------- 매 장면 ----------
   const trail = [];   // 주인공이 걸어온 자리 (오래된 것부터)
   const camT = { x: 0, z: 0, ok: false };
@@ -1449,8 +1697,10 @@
     if (!w || !h) return true;
     if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) renderer.setSize(w, h, false);
     camera.aspect = w / h; camera.updateProjectionMatrix();
+    if (v.battle) return battleFrame(v, w, h);
     if (!scenes[v.area]) scenes[v.area] = buildArea(v.area);
     const S3 = scenes[v.area];
+    if (bt) endBattle3D(S3);
     if (curArea !== v.area) {
       cur = S3; curArea = v.area;
       for (const m of party) S3.scene.add(m.root);

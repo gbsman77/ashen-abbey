@@ -538,6 +538,10 @@
   let busy = false;      // 한 라운드가 연출되는 동안 입력 잠금
   let foeSprites = [];   // 3D 화면 위 적 스프라이트
 
+  // 3D로 보기의 전투 무대(world3d.js)에 파티 동작·효과를 알린다. 2D 화면이면 아무 일도 없다
+  const act3D = (m, kind, arg) => { if (on3D()) World3D.act(S.party.indexOf(m), kind, arg); };
+  const fx3D = (kind, arg) => { if (on3D()) World3D.fx(kind, arg); };
+
   function startBattle(mid, fromKey) {
     const mon = D.monsters[mid];
     const n = roll(mon.count[0], mon.count[1]);
@@ -673,14 +677,16 @@
 
   async function partyAct(m, cmd) {
     const mon = D.monsters[S.battle.mid];
-    if (cmd.act === 'guard') { sfx('guard'); blog(m.name + '은(는) 방어 자세를 취했다.'); await wait(350); return; }
+    if (cmd.act === 'guard') { act3D(m, 'guard'); sfx('guard'); blog(m.name + '은(는) 방어 자세를 취했다.'); await wait(350); return; }
     if (cmd.act === 'attack') {
       const [f, i] = pick(liveFoes());
       lunge(-1);
+      act3D(m, 'attack', i);
       if (Math.random() > 0.88) { sfx('miss'); blog(m.name + '의 공격이 빗나갔다.'); await wait(550); return; }
       const crit = Math.random() < 0.1;
       const dmg = Math.max(1, roll(atkOf(m), atkOf(m) + 4) - mon.def) * (crit ? 2 : 1);
       hitFoe(i, dmg);
+      fx3D('spark', i);
       sfx(crit ? 'crit' : 'slash');
       blog(m.name + '의 공격! ' + mon.name + '에게 ' + dmg + '의 피해' + (crit ? ' (급소!)' : '') + (f.hp <= 0 ? ', 쓰러뜨렸다.' : '.'), crit ? 'good' : '');
       await wait(650);
@@ -693,9 +699,11 @@
       const t = alive().sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
       const amt = Math.min(t.maxHp - t.hp, spellRoll(m, sp));
       t.hp += amt;
+      act3D(m, 'heal'); fx3D('heal', S.party.indexOf(t));
       flash('heal'); sfx('heal');
       blog(m.name + '의 ' + sp.name + '! ' + t.name + '의 체력이 ' + amt + ' 회복되었다.', 'good');
     } else {
+      act3D(m, 'fire'); fx3D('fire');
       flash('fire'); sfx('fire');
       const hits = liveFoes();
       let downs = 0;
@@ -715,7 +723,7 @@
     foeLunge(i);
     const br = mon.breath; // 숨결: 파티 전원에게, 방어력 무시 (방어 자세면 절반)
     if (br && Math.random() < br.chance) {
-      flash('fire'); sfx('fire');
+      flash('fire'); sfx('fire'); fx3D('breath');
       cam.bump = { dx: 0, dz: 0, t: 0, shake: true };
       const hurt = [];
       S.party.forEach((p, j) => {
@@ -723,6 +731,7 @@
         let d = roll(br.power[0], br.power[1]);
         if (guards.includes(j)) d = Math.max(1, Math.floor(d / 2));
         p.hp = Math.max(0, p.hp - d);
+        act3D(p, 'hit');
         hurt.push(p.name + ' ' + d + (p.hp <= 0 ? '(쓰러짐)' : ''));
       });
       blog(mon.name + '의 ' + br.name + '! ' + hurt.join(', '), 'warn');
@@ -734,6 +743,7 @@
     let dmg = Math.max(1, roll(mon.atk - 1, mon.atk + 3) - (mon.magic ? 0 : m.def));
     if (guards.includes(k)) dmg = Math.max(1, Math.floor(dmg / 2));
     m.hp = Math.max(0, m.hp - dmg);
+    act3D(m, guards.includes(k) ? 'guard' : 'hit');
     flash('hurt'); sfx(guards.includes(k) ? 'block' : 'hit');
     cam.bump = { dx: 0, dz: 0, t: 0, shake: true };
     blog(mon.name + '의 공격! ' + m.name + '이(가) ' + dmg + '의 피해를 입었다' + (m.hp <= 0 ? '. ' + m.name + '이(가) 쓰러졌다!' : '.'), 'warn');
@@ -2281,12 +2291,24 @@
       if (t >= 1) cam.bump = null;
     }
     w3dCv.hidden = false;
-    worldCv.hidden = !S.battle;
+    worldCv.hidden = true; // 전투도 3D 무대에서 (world3d.js battleFrame)
     World3D.frame({
       area: S.area, hero: { x: hero.x, y: hero.y, dir: S.wdir }, dt, shake, reduceMotion, ok: open3D, done: (x, y) => !!S.done[wkey(x, y)], flag: (n) => !!S.flags[n],
-      movers: ensureMovers().map((m) => ({ x: m.fx, y: m.fy, dir: m.dir, npc: m.ev.npc, key: m.hx + ',' + m.hy }))
+      movers: ensureMovers().map((m) => ({ x: m.fx, y: m.fy, dir: m.dir, npc: m.ev.npc, key: m.hx + ',' + m.hy })),
+      battle: battle3D()
     });
-    if (S.battle) { wctx.clearRect(0, 0, worldCv.width, worldCv.height); drawWorldBattle(worldCv.width, worldCv.height); }
+  }
+  // 3D 전투 무대에 넘길 것: 적 그림(던전·2D 전투와 같은 monsters/<sprite>.png)과 크기, 적마다 연출 상태, 쓰러진 파티원
+  function battle3D() {
+    const B = S.battle;
+    if (!B || !foeSprites.length) return null;
+    const mon = D.monsters[B.mid], look = foeLook(mon.sprite), art = foeSprites[0].art;
+    return {
+      ref: B, img: art.tex.image, aspect: art.aspect || 1, scale: look.scale, tint: mon.tint != null ? mon.tint : look.tint,
+      glow: !!look.glow && !art.custom, fly: !!look.glow || look.y > look.scale * 0.6,
+      foes: foeSprites.map((f) => ({ hit: f.hit, lunge: f.lunge, dying: f.dying })),
+      down: S.party.map((m) => m.hp <= 0), won: !B.foes.some((f) => f.hp > 0) && S.party.some((m) => m.hp > 0)
+    };
   }
   function set3D(on) {
     use3D = on;
@@ -2620,7 +2642,7 @@
   let glFailed = false;
   function draw() {
     const w = inWorld();
-    view.hidden = w; worldCv.hidden = !w || (on3D() && !S.battle); $('dir').hidden = w;
+    view.hidden = w; worldCv.hidden = !w || on3D(); $('dir').hidden = w;
     w3dCv.hidden = !on3D();
     update3DButton();
     $('noGL').hidden = !(glFailed && !w);
