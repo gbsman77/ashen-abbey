@@ -45,7 +45,7 @@
 
   const D = window.DUNGEON;
   let THREE = null, GLTFLoader = null, mergeGeometries = null, cloneSkinned = null;
-  let renderer = null, camera = null, sun = null, hemi = null;
+  let renderer = null, camera = null, sun = null, hemi = null, tune = null;
   let props = null;               // 이름 → gltf 장면
   let party = [];                 // { root, mixer, acts, cur, pos, yaw }
   const scenes = {};              // 지역 → { scene, buildings, doors, water, spray, npcs, cols, rows }
@@ -57,7 +57,7 @@
     get ready() { return W3.state === 'ready'; },
     load, frame, reset: () => { trail.length = 0; },
     act: (i, kind, arg) => battleAct(i, kind, arg), fx: (kind, arg) => battleFx(kind, arg),
-    info: () => renderer && { ...renderer.info.render, tex: renderer.info.memory.textures, geo: renderer.info.memory.geometries },
+    info: () => renderer && { ...renderer.info.render, tex: renderer.info.memory.textures, geo: renderer.info.memory.geometries, ...tune.info() },
     crawlKit: () => crawlKit()
   };
 
@@ -143,10 +143,10 @@
   function initRenderer() {
     const canvas = document.getElementById('world3d');
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = Quality.shadowType(THREE);
+    tune = Quality.tuner(renderer);
     camera = new THREE.PerspectiveCamera(34, 4 / 3, 0.3, 120);
     CUT.hero.value = new THREE.Vector3();
     hemi = new THREE.HemisphereLight(0xfff8ee, 0x6d7d5a, 1.55);
@@ -1444,7 +1444,8 @@
     const g = new THREE.Group();
     if (!kit(g, 'crypt', cx - 0.32, 0, cz - 0.05, 0.22, Math.PI / 2)) { iconSprite(scene, 'crypt', cx, cz); return; }
     landmark(S3, g);
-    g.traverse((o) => { if (o.isMesh) o.material.color.setRGB(0.6, 0.62, 0.7); }); // 주황 지붕을 잿빛 이끼 돌로
+    // 주황 지붕을 잿빛 이끼 돌로: 색을 곱하기만 하면 주황이 갈색으로 남으므로 그림 자체를 잿빛으로 바꾸고 푸르스름하게
+    g.traverse((o) => { if (o.isMesh) { if (o.material.map) o.material.map = greyTex(o.material.map); o.material.color.setRGB(0.74, 0.77, 0.86); } });
     const graves = [[-3.2, -1.6, 'grave_A'], [-2.3, -1.9, 'gravestone'], [-1.4, -1.45, 'gravemarker_A'], [-3.4, -0.4, 'gravemarker_B'], [-2.5, 0.2, 'grave_B'],
       [-3.0, 1.1, 'gravestone'], [-1.9, 1.2, 'gravemarker_A'], [0.2, 1.25, 'grave_A'], [1.3, 1.1, 'gravemarker_B'], [2.4, 1.3, 'gravestone'], [3.3, 1.0, 'grave_B'], [-4.2, -1.0, 'grave_B']];
     const sc = { grave_A: 0.25, grave_B: 0.25, gravestone: 0.3, gravemarker_A: 0.4, gravemarker_B: 0.4 };
@@ -1466,6 +1467,29 @@
       sp.scale.set(0.42, 0.42, 1); scene.add(sp);
       S3.wisps.push({ obj: sp, x: cx + ox, z: cz + oz, ph: i * 1.9, light: i === 0 ? blue : null });
     });
+  }
+
+  // 그림을 잿빛으로 (거의 흑백, 약간의 본래 색). 같은 그림은 한 번만 만든다
+  const greyed = new Map();
+  function greyTex(tex) {
+    if (greyed.has(tex)) return greyed.get(tex);
+    let out = tex;
+    try {
+      const img = tex.image, c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const x = c.getContext('2d');
+      x.drawImage(img, 0, 0);
+      const d = x.getImageData(0, 0, c.width, c.height), a = d.data;
+      for (let i = 0; i < a.length; i += 4) {
+        const l = a[i] * 0.3 + a[i + 1] * 0.59 + a[i + 2] * 0.11;
+        a[i] = l + (a[i] - l) * 0.15; a[i + 1] = l + (a[i + 1] - l) * 0.15; a[i + 2] = l + (a[i + 2] - l) * 0.15;
+      }
+      x.putImageData(d, 0, 0);
+      out = new THREE.CanvasTexture(c);
+      for (const k of ['flipY', 'colorSpace', 'wrapS', 'wrapT', 'magFilter', 'minFilter', 'channel']) out[k] = tex[k];
+    } catch (e) { /* 그림을 못 읽으면 그대로 */ }
+    greyed.set(tex, out);
+    return out;
   }
 
   function makeStall(scene, x, z, rot) {
@@ -1949,6 +1973,7 @@
     const canvas = renderer.domElement;
     const w = canvas.clientWidth, h = canvas.clientHeight;
     if (!w || !h) return true;
+    tune.tick(v.battle ? 'battle:' + v.battle.stage : v.area);
     if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) renderer.setSize(w, h, false);
     camera.aspect = w / h; camera.updateProjectionMatrix();
     if (v.battle) return battleFrame(v, w, h);

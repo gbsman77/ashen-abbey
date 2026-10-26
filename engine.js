@@ -1156,7 +1156,7 @@
   }
 
   // ---------- 3D 장면 ----------
-  let renderer, scene, camera, torch, level, dust, props = [], doors = [], lights3d = [];
+  let renderer, tune, scene, camera, torch, level, dust, props = [], doors = [], lights3d = [];
   let builtFloor = null, builtKit = false;
   const cam = { x: 0, z: 0, yaw: 0, targetYaw: 0, bob: 0, bump: null };
   let M = null; // 재질 모음
@@ -1166,12 +1166,12 @@
 
   function initThree() {
     renderer = new THREE.WebGLRenderer({ canvas: view, antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = Quality.shadowType(THREE);
+    tune = Quality.tuner(renderer); // 휴대폰에서 버벅이면 해상도를 낮춘다 (quality.js)
 
     scene = new THREE.Scene();
     const fogColor = new THREE.Color(0x060508);
@@ -1917,6 +1917,7 @@
       dust.geometry.attributes.position.needsUpdate = true;
     }
 
+    tune.tick(S.floor);
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
@@ -2247,11 +2248,11 @@
   }
   // 그림은 처음 쓰일 때가 아니라 미리 불러 둔다 (방향을 바꾸는 순간 도트 그림이 끼어들지 않게)
   function preloadWorldArt() {
-    Object.values(TERRAIN).forEach((t) => { worldArt(t.tile); if (t.under) worldArt(t.under); });
+    Object.values(TERRAIN).forEach((t) => { worldArt(t.tile); if (t.under && t.under !== 'ground') worldArt(t.under); }); // 'ground' = 그 지역의 바닥 (이름표일 뿐 그림 파일이 아니다)
     DIR_FILE.forEach((d) => { worldArt('hero_' + d); worldArt('hero_' + d + '_1'); worldArt('hero_' + d + '_2'); });
     ['door', 'shore_edge', 'shore_corner', 'forest_edge'].forEach(worldArt);
-    for (const A of Object.values(D.areas || {})) {
-      worldArt('battle_' + Object.keys(D.areas).find((k) => D.areas[k] === A));
+    for (const [id, A] of Object.entries(D.areas || {})) {
+      if (A.encounters) worldArt('battle_' + id); // 전투 배경은 적이 나오는 곳만
       for (const ev of Object.values(A.events)) { if (ev.icon) worldArt(ev.icon); if (ev.iconDone) worldArt(ev.iconDone); if (ev.npc) worldArt('npc_' + ev.npc); }
     }
   }
