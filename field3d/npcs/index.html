@@ -1,0 +1,137 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>마을 사람 3D</title>
+<style>
+  :root { color-scheme:dark; --ink:#f4ead2; --panel:rgba(20,16,12,.74); --line:rgba(244,234,210,.35); --gold:#d9b56c; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#2a2219; font-family:"Noto Serif KR","Apple SD Gothic Neo",serif; color:var(--ink); -webkit-user-select:none; user-select:none; }
+  canvas { display:block; touch-action:none; }
+  #top { position:fixed; left:0; right:0; top:calc(10px + env(safe-area-inset-top)); display:flex; justify-content:center; gap:8px; padding:0 16px; pointer-events:none; }
+  .who { pointer-events:auto; padding:6px 12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; font-size:14px; cursor:pointer; text-align:center; }
+  .who small { display:block; font-size:11px; opacity:.7; }
+  .who.on { border-color:var(--gold); box-shadow:0 0 0 1px var(--gold) inset; }
+  #bottom { position:fixed; left:0; right:0; bottom:calc(12px + env(safe-area-inset-bottom)); display:flex; flex-wrap:wrap; justify-content:center; gap:6px; padding:0 16px; }
+  button { font:inherit; font-size:14px; color:var(--ink); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; cursor:pointer; }
+  button.on { border-color:var(--gold); color:var(--gold); }
+  #loading { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:#1a1510; font-size:18px; z-index:5; transition:opacity .5s; }
+  #credit { position:fixed; right:10px; bottom:calc(64px + env(safe-area-inset-bottom)); font-size:10px; opacity:.6; pointer-events:none; }
+  @media (max-width:520px) { button { padding:7px 9px; font-size:13px; } #credit { bottom:calc(104px + env(safe-area-inset-bottom)); } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+} }
+</script>
+<div id="loading">마을 사람들을 불러오는 중…</div>
+<div id="bottom"></div>
+<div id="credit">바탕 모델: KayKit Adventurers (Kay Lousberg, CC0) · 색과 소품을 바꿔 만듦 · 위 그림은 지금 게임의 2D 그림</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2a2219);
+scene.fog = new THREE.Fog(0x2a2219, 16, 32);
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 100);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.minDistance = 2.5; controls.maxDistance = 22;
+controls.maxPolarAngle = Math.PI * 0.49;
+function frameAll() {
+  const narrow = innerWidth < innerHeight;
+  camera.position.set(0, narrow ? 6.5 : 2.4, narrow ? 13.5 : 7.6);
+  controls.target.set(0, 0.75, 0);
+}
+frameAll();
+
+scene.add(new THREE.HemisphereLight(0xfff2dc, 0x3a3026, 1.5));
+const sun = new THREE.DirectionalLight(0xfff0d8, 1.8);
+sun.position.set(3, 8, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 });
+sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.02;
+scene.add(sun);
+const ground = new THREE.Mesh(new THREE.BoxGeometry(10, 0.3, 7.4), new THREE.MeshStandardMaterial({ color: 0x6d6255, roughness: 0.95 }));
+ground.position.y = -0.15; ground.receiveShadow = true; scene.add(ground);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// 이름 = data.js 의 npc, h 는 world3d.js NPC3D 와 같은 키 비율
+const NPCS = [
+  ['guard', '문지기', 1.1], ['child', '아이', 0.8], ['traveler', '나그네', 1.0], ['merchant', '장사꾼', 1.02], ['woman', '아주머니', 0.98], ['farmer', '농부', 1.02],
+  ['elder', '장로', 1.0], ['innkeeper', '여관 주인', 1.04], ['priest', '신부', 1.02], ['granny', '약초 할머니', 0.92], ['smith', '대장장이', 1.1], ['hermit', '은자', 0.98],
+];
+const loader = new GLTFLoader();
+const parse = b64 => new Promise((ok, fail) => loader.parse(Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer, '', ok, fail));
+const tex = new THREE.TextureLoader();
+const people = await Promise.all(NPCS.map(async ([key, name, h], i) => {
+  const p = await fetch('../../models3d/npc_' + key + '.json').then(r => r.json());
+  const g = await parse(p['npc_' + key]);
+  const C = innerWidth < innerHeight ? 3 : 6, rows = 12 / C;
+  const row = Math.floor(i / C), col = i % C;
+  const root = g.scene;
+  root.scale.setScalar(h * 0.5);
+  root.position.set((col - (C - 1) / 2) * 1.35 + (row % 2) * 0.45, 0, (row - (rows - 1) / 2) * -1.6);
+  root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  scene.add(root);
+  // 지금 게임 그림을 머리 위에 작게
+  const t = tex.load('../../world/npc_' + key + '.png'); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t }));
+  sp.scale.set(0.62, 0.62, 1); sp.position.set(root.position.x, 1.62, root.position.z); scene.add(sp);
+  const mixer = new THREE.AnimationMixer(root);
+  const clips = Object.fromEntries(g.animations.map(c => [c.name, c]));
+  const o = { key, name, root, mixer, clips, cur: null };
+  play(o, 'Idle');
+  o.cur.time = Math.random() * 2;
+  return o;
+}));
+
+function play(p, name) {
+  const act = p.mixer.clipAction(p.clips[name]);
+  act.reset().play();
+  if (p.cur && p.cur !== act) p.cur.crossFadeTo(act, 0.25, false);
+  p.cur = act;
+}
+let walking = false;
+const bottom = document.getElementById('bottom');
+for (const [label, move] of [['서 있기', 'Idle'], ['걷기', 'Walking_A'], ['말 걸기', 'Interact']]) {
+  const b = document.createElement('button'); b.textContent = label;
+  b.onclick = () => { walking = move === 'Walking_A'; for (const p of people) play(p, move); };
+  bottom.appendChild(b);
+}
+const tb = document.createElement('button'); tb.textContent = '빙글 돌기';
+let spin = false;
+tb.onclick = () => { spin = !spin; tb.classList.toggle('on', spin); if (!spin) people.forEach(p => p.root.rotation.y = 0); };
+const fb = document.createElement('button'); fb.textContent = '처음 자리';
+fb.onclick = frameAll;
+bottom.append(tb, fb);
+
+document.getElementById('loading').style.opacity = 0;
+setTimeout(() => document.getElementById('loading').remove(), 600);
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  for (const p of people) {
+    p.mixer.update(dt);
+    if (spin) p.root.rotation.y += dt * 0.8;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>

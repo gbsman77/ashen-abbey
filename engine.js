@@ -2284,7 +2284,7 @@
     worldCv.hidden = !S.battle;
     World3D.frame({
       area: S.area, hero: { x: hero.x, y: hero.y, dir: S.wdir }, dt, shake, reduceMotion, ok: open3D,
-      movers: ensureMovers().map((m) => ({ x: m.fx, y: m.fy, npc: m.ev.npc, key: m.hx + ',' + m.hy }))
+      movers: ensureMovers().map((m) => ({ x: m.fx, y: m.fy, dir: m.dir, npc: m.ev.npc, key: m.hx + ',' + m.hy }))
     });
     if (S.battle) { wctx.clearRect(0, 0, worldCv.width, worldCv.height); drawWorldBattle(worldCv.width, worldCv.height); }
   }

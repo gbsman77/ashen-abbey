@@ -12,6 +12,12 @@
     { key: 'priest', keep: ['1H_Wand'] },
     { key: 'mage', keep: ['2H_Staff'] }
   ];
+  // 마을 사람 3D 모델: models3d/npc_<이름>.json (tools3d/build_npcs.py). 이름 = data.js 의 npc. h = 키 (주인공 키에 곱한다)
+  // 처음 보일 때 따로 불러오고, 오기 전까지와 파일이 없을 때는 2D 그림 판(world/npc_*.png)으로 선다
+  const NPC3D = {
+    child: { h: 0.8 }, elder: { h: 1.0 }, farmer: { h: 1.02 }, granny: { h: 0.92 }, guard: { h: 1.1 }, hermit: { h: 0.98 },
+    innkeeper: { h: 1.04 }, merchant: { h: 1.02 }, priest: { h: 1.02 }, smith: { h: 1.1 }, traveler: { h: 1.0 }, woman: { h: 0.98 }
+  };
   const AREAS = { town: true };   // 3D로 그리는 지역
   const PROPS = 'town';           // models3d/town.json: KayKit Medieval Hexagon 소품 묶음 (장면 이름 = 소품 이름)
   const HERO_H = 1.1;             // 사람 키 (칸 단위, 한 칸 = 1)
@@ -19,7 +25,7 @@
   const GAP = 0.85;               // 줄 선 사람 사이 거리
 
   const D = window.DUNGEON;
-  let THREE = null, GLTFLoader = null, mergeGeometries = null;
+  let THREE = null, GLTFLoader = null, mergeGeometries = null, cloneSkinned = null;
   let renderer = null, camera = null, sun = null, hemi = null;
   let props = null;               // 이름 → gltf 장면
   let party = [];                 // { root, mixer, acts, cur, pos, yaw }
@@ -44,10 +50,11 @@
     W3.state = 'loading';
     const step = (() => { let n = 0; const total = 2 + PARTY3D.length; return () => progress && progress(++n / total); })();
     loading = (async () => {
-      const [three, gl, bgu] = await Promise.all([
-        import('three'), import('three/addons/loaders/GLTFLoader.js'), import('three/addons/utils/BufferGeometryUtils.js')
+      const [three, gl, bgu, sku] = await Promise.all([
+        import('three'), import('three/addons/loaders/GLTFLoader.js'), import('three/addons/utils/BufferGeometryUtils.js'),
+        import('three/addons/utils/SkeletonUtils.js')
       ]);
-      THREE = three; GLTFLoader = gl.GLTFLoader; mergeGeometries = bgu.mergeGeometries;
+      THREE = three; GLTFLoader = gl.GLTFLoader; mergeGeometries = bgu.mergeGeometries; cloneSkinned = sku.clone;
       step();
       const loader = new GLTFLoader();
       const fetchPack = (name) => fetch('models3d/' + name + '.json').then((r) => { if (!r.ok) throw new Error(name); return r.json(); })
@@ -112,6 +119,33 @@
     to.reset().play();
     from.crossFadeTo(to, 0.18, false);
     ch.cur = name;
+  }
+
+  // ---------- 마을 사람 ----------
+  const npcGltf = {};   // 이름 → gltf | 'loading' | 'failed'
+  function npcModel(name) {
+    const g = npcGltf[name];
+    if (g && g !== 'loading' && g !== 'failed') return g;
+    if (!g && NPC3D[name]) {
+      npcGltf[name] = 'loading';
+      fetch('models3d/npc_' + name + '.json').then((r) => { if (!r.ok) throw new Error(name); return r.json(); })
+        .then((p) => parse(new GLTFLoader(), p['npc_' + name]))
+        .then((gl) => { npcGltf[name] = gl; }, () => { npcGltf[name] = 'failed'; });
+    }
+    return null;
+  }
+  function makeNpc(name, gltf) {
+    const root = cloneSkinned(gltf.scene);
+    root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+    root.scale.setScalar(HERO_H * NPC3D[name].h / MODEL_H);
+    const wrap = new THREE.Group(); wrap.add(root);
+    const mixer = new THREE.AnimationMixer(root);
+    const clip = (n) => THREE.AnimationClip.findByName(gltf.animations, n) || gltf.animations[0];
+    const acts = { idle: mixer.clipAction(clip('Idle')), walk: mixer.clipAction(clip('Walking_A')) };
+    // 여럿이 같은 박자로 움직이지 않게 시작점을 흩는다
+    acts.idle.play(); acts.idle.time = Math.random() * acts.idle.getClip().duration;
+    acts.walk.timeScale = 0.8;
+    return { root: wrap, mixer, acts, cur: 'idle', yaw: null, still: 1, model: true, px: null, pz: null };
   }
 
   // ---------- 땅 그림 (지도 한 칸 = PPT 픽셀, 둘레 MARGIN 칸까지) ----------
@@ -786,15 +820,32 @@
       if (m.mixer) m.mixer.update(dt);
     });
 
-    // 마을 사람
+    // 마을 사람: 3D 모델이 오면 그림 판을 바꿔 끼운다. 걷는 중이면 걷기, 서 있으면 숨쉬기
     const live = new Set();
     for (const p of v.movers) {
-      let o = S3.npcs.get(p.key);
-      if (!o) { o = billboard('npc_' + p.npc, 1.2); S3.scene.add(o); S3.npcs.set(p.key, o); }
-      o.position.set(p.x + 0.5, 0, p.y + 0.5);
+      let n = S3.npcs.get(p.key);
+      if (!n || !n.model) {
+        const gl = npcModel(p.npc);
+        if (gl) { if (n) S3.scene.remove(n.root); n = makeNpc(p.npc, gl); S3.scene.add(n.root); S3.npcs.set(p.key, n); }
+        else if (!n) { n = { root: billboard('npc_' + p.npc, 1.2), model: false }; S3.scene.add(n.root); S3.npcs.set(p.key, n); }
+      }
+      const x = p.x + 0.5, z = p.y + 0.5;
+      if (n.model) {
+        const moved = n.px == null ? 0 : Math.hypot(x - n.px, z - n.pz);
+        n.px = x; n.pz = z;
+        const want = [Math.PI, Math.PI / 2, 0, -Math.PI / 2][p.dir == null ? 2 : p.dir];
+        if (n.yaw == null) n.yaw = want;
+        let d = want - n.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+        n.yaw += d * Math.min(1, dt * 8);
+        if (moved / Math.max(dt, 1e-3) > 0.2) n.still = 0; else n.still += dt;
+        setAnim(n, n.still > 0.15 ? 'idle' : 'walk');
+        n.root.rotation.y = n.yaw;
+        n.mixer.update(dt);
+      }
+      n.root.position.set(x, 0, z);
       live.add(p.key);
     }
-    for (const [k, o] of S3.npcs) o.visible = live.has(k);
+    for (const [k, n] of S3.npcs) n.root.visible = live.has(k);
 
     // 문: 앞에 서면 안으로 열린다
     for (const d of S3.doors) {
